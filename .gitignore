@@ -1,0 +1,9 @@
+node_modules
+dist
+.next
+.env
+*.log
+
+# Runtime-uploaded media (local storage driver) — keep the folder, ignore contents
+uploads/*
+!uploads/.gitkeep
