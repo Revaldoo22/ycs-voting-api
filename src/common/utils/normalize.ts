@@ -1,3 +1,5 @@
+import { webcrypto } from "node:crypto";
+
 /** Keep digits only; convert leading 62 to 0 (Indonesian numbers). */
 export function normalizePhone(input: string): string {
   const digits = input.replace(/\D/g, "");
@@ -21,7 +23,7 @@ export function normalizeLink(url: string): string {
 export function generatePassword(): string {
   const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
   const bytes = new Uint8Array(8);
-  require("crypto").webcrypto.getRandomValues(bytes);
+  webcrypto.getRandomValues(bytes);
   let out = "";
   for (const b of bytes) out += chars[b % chars.length];
   return `STK-${out.slice(0, 4)}-${out.slice(4)}`;

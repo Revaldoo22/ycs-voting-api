@@ -69,7 +69,7 @@ export class DepotHooksController {
     // Saat ini cukup dicatat — /api/media fallback ke original bila varian
     // belum siap, jadi tidak ada state yang wajib diubah. Titik sambung
     // untuk notifikasi/penandaan di masa depan.
-    // eslint-disable-next-line no-console
+     
     console.log(`[depot] ${event} delivery=${delivery}`);
     return { ok: true };
   }
