@@ -2,6 +2,14 @@
 
 Dokumen singkat buat tim web pendaftaran. Semua endpoint server-ke-server.
 
+**Arsitektur:** web pendaftaran = **sumber data (master)**. Sistem YCS ini =
+**replika**. Kalian distribusikan data ke sini; kunci sinkronnya **`external_id`**
+(ID peserta milik kalian). Kirim ulang `external_id` yang sama = update, bukan
+dobel — kalian tidak perlu menyimpan ID apa pun dari sini.
+
+> **Pakai endpoint no. 1 (Sync by external_id) sebagai jalur utama.** Endpoint
+> lain (by nomor WA / by ID) hanya alternatif/legacy.
+
 ## Auth (wajib tiap request)
 
 Kirim 2 header ini:
@@ -15,7 +23,47 @@ Base URL: `https://<domain-api>/api/integrations`
 
 ---
 
-## 1. Daftar / Update Peserta
+## 1. Sync Peserta (utama — by external_id)
+
+**POST** `/participants/sync`
+
+Kirim data peserta + `external_id` (ID milik kalian). Create kalau baru, update
+kalau `external_id` sudah pernah dikirim. Nomor WA & sekolah ikut disinkron.
+
+Body:
+
+```json
+{
+  "external_id": "PST-000123",
+  "name": "Budi Santoso",
+  "phone_number": "08123456789",
+  "school_name": "SMA Negeri 1 Semarang",
+  "region_code": "3374",
+  "description": "opsional",
+  "photo_url": "https://cdn-kalian.com/foto/budi.jpg",
+  "status": "active"
+}
+```
+
+| Field | Wajib | Keterangan |
+|-------|-------|-----------|
+| `external_id` | ✅ | ID peserta di sistem kalian (kunci sync) |
+| `name` | ✅ | 2–100 |
+| `phone_number` | ✅ | 8–20 digit |
+| `school_name` | ✅ | sekolah auto-dibuat kalau belum ada |
+| `region_code` | — | kode BPS kabupaten |
+| `description` / `photo_url` / `status` | — | opsional |
+
+Respon: `{ "created": true|false, "participant": { ... } }`
+
+Verifikasi: **GET** `/participants/by-external/{external_id}`.
+
+> Ganti nama, nomor WA, sekolah, foto, status — semua cukup lewat endpoint ini
+> (kirim ulang dengan `external_id` sama). Nomor baru dicek unik → `409` bila bentrok.
+
+---
+
+## 2. (Legacy) Daftar / Update Peserta by nomor WA
 
 **POST** `/participants`
 
@@ -58,7 +106,7 @@ Respon:
 
 ---
 
-## 2. Update Peserta by ID (dipakai dashboard web kedua)
+## 3. (Legacy) Update Peserta by ID sistem ini
 
 **PATCH** `/participants/id/{id}`
 
@@ -93,7 +141,7 @@ Berguna kalau kalian identifikasi by nomor lama, bukan by ID.
 
 ---
 
-## 3. Sekolah & Kabupaten
+## 4. Sekolah & Kabupaten
 
 **GET** `/regions` — daftar kabupaten (id, name, code BPS, province). Pakai
 `code` untuk memetakan sekolah ke kabupaten.
@@ -111,7 +159,7 @@ Respon: `{ "ok": true, "school": { ... } }`
 
 ---
 
-## 4. Sync Konten Peserta
+## 5. Sync Konten Peserta
 
 **PUT** `/participants/{phone}/contents`
 
@@ -141,7 +189,7 @@ Respon: `{ "ok": true, "count": 2 }`
 
 ---
 
-## 5. Cek Data Peserta (opsional, buat verifikasi)
+## 6. Cek Data Peserta by nomor WA (opsional)
 
 **GET** `/participants/{phone}`
 
@@ -152,15 +200,13 @@ Respon: `{ "participant": {...}, "contents": [...] }`
 ## Contoh cepat (curl)
 
 ```bash
-# Daftar/update peserta
-curl -X POST https://<domain-api>/api/integrations/participants \
+# UTAMA: sync peserta by external_id (create/update)
+curl -X POST https://<domain-api>/api/integrations/participants/sync \
   -H "X-Api-Key: $KEY" -H "Content-Type: application/json" \
-  -d '{"name":"Budi","phone_number":"08123456789","school_name":"SMA 1 Semarang","region_code":"3374"}'
+  -d '{"external_id":"PST-000123","name":"Budi","phone_number":"08123456789","school_name":"SMA 1 Semarang","region_code":"3374"}'
 
-# Update peserta by ID (cara sync utama dari dashboard web kedua)
-curl -X PATCH https://<domain-api>/api/integrations/participants/id/<PARTICIPANT_ID> \
-  -H "X-Api-Key: $KEY" -H "Content-Type: application/json" \
-  -d '{"name":"Nama Baru","phone_number":"08129999999","status":"inactive"}'
+# Verifikasi
+curl https://<domain-api>/api/integrations/participants/by-external/PST-000123 -H "X-Api-Key: $KEY"
 
 # Daftar kabupaten
 curl https://<domain-api>/api/integrations/regions -H "X-Api-Key: $KEY"
@@ -180,8 +226,11 @@ curl -X PUT https://<domain-api>/api/integrations/participants/08123456789/conte
 
 ## Catatan penting
 
-- **Idempoten by nomor WA** — aman kirim ulang, tidak dobel.
+- **Kunci sync = `external_id`** (ID peserta di sistem kalian). Kirim ulang
+  `external_id` sama = update. Kalian tak perlu simpan ID apa pun dari sini.
+- Ganti apa saja (nama, nomor WA, sekolah, foto, status) cukup lewat
+  **POST `/participants/sync`** — kirim ulang data lengkap dengan `external_id` sama.
 - **Foto**: endpoint ini tidak menerima file. Upload foto ke storage kalian dulu, lalu kirim `photo_url`-nya.
-- Daftar peserta otomatis: buat sekolah kalau belum ada + buatkan akun login peserta (login pakai nomor WA).
-- Kalau API key salah/kurang → respon `401`.
-- Kalau data tidak valid → respon `400` (pesan error ada di field `message`).
+- Sekolah auto-dibuat kalau belum ada; akun login peserta dibuat otomatis (login pakai nomor WA).
+- Nomor WA tetap harus unik antar peserta → `409` bila bentrok.
+- API key salah/kurang → `401`. Data tidak valid → `400` (detail di field `message`).

@@ -121,6 +121,51 @@ class UpdateParticipantDto {
   status?: "active" | "inactive";
 }
 
+/**
+ * Sinkron peserta dari web kedua (master). Di-address pakai external_id
+ * (ID milik web kedua). Create kalau baru, update kalau sudah ada.
+ */
+class SyncParticipantDto {
+  @IsString()
+  @MinLength(1)
+  @MaxLength(100)
+  external_id!: string;
+
+  @IsString()
+  @MinLength(2)
+  @MaxLength(100)
+  name!: string;
+
+  @IsString()
+  @MinLength(8)
+  @MaxLength(20)
+  @Matches(/^[0-9+\-\s().]+$/)
+  phone_number!: string;
+
+  @IsString()
+  @MinLength(2)
+  @MaxLength(150)
+  school_name!: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(10)
+  region_code?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(1000)
+  description?: string;
+
+  @IsOptional()
+  @IsUrl({ require_tld: false })
+  photo_url?: string;
+
+  @IsOptional()
+  @IsIn(["active", "inactive"])
+  status?: "active" | "inactive";
+}
+
 /** Upsert sekolah by nama (case-insensitive) + petakan kabupaten. */
 class UpsertSchoolDto {
   @IsString()
@@ -198,7 +243,85 @@ export class IntegrationsController {
     return school;
   }
 
-  /** Upsert peserta by nomor WA. Balikan { created, participant }. */
+  /**
+   * Sinkron peserta dari web kedua (master) by external_id.
+   * Web kedua = sumber data; sini replika. Create bila external_id baru,
+   * update bila sudah ada. Nomor WA & sekolah ikut disinkron.
+   */
+  @Post("participants/sync")
+  async syncParticipant(@Body() dto: SyncParticipantDto) {
+    const phone = normalizePhone(dto.phone_number);
+    const school = await this.resolveSchool(dto.school_name, dto.region_code);
+
+    let participant = await this.participants.findOneBy({
+      externalId: dto.external_id,
+    });
+    // Belum ada by external_id: coba adopsi peserta lama yang match nomor
+    // (mis. sudah pernah dibuat manual di admin) agar tidak dobel.
+    if (!participant) {
+      const byPhone = await this.findByPhone(phone);
+      if (byPhone) participant = byPhone;
+    }
+
+    // Nomor WA tidak boleh dipakai akun lain (selain peserta ini sendiri).
+    const clash = await this.profiles.findOneBy({ phoneNumber: phone });
+    if (
+      clash &&
+      (!participant || clash.id !== participant.profileId)
+    ) {
+      throw new ConflictException("Nomor WhatsApp sudah dipakai akun lain.");
+    }
+
+    if (participant) {
+      participant.externalId = dto.external_id;
+      participant.name = dto.name.trim();
+      participant.schoolId = school.id;
+      participant.description = dto.description?.trim() || null;
+      if (dto.photo_url !== undefined) participant.photoUrl = dto.photo_url;
+      if (dto.status !== undefined) participant.status = dto.status;
+      const saved = await this.participants.save(participant);
+      if (participant.profileId) {
+        await this.profiles.update(
+          { id: participant.profileId },
+          { name: dto.name.trim(), phoneNumber: phone, schoolId: school.id },
+        );
+      }
+      return { created: false, participant: saved };
+    }
+
+    // Peserta baru: bikin profil + participant sekaligus.
+    const created = await this.db.transaction(async (em) => {
+      const profile = await em.getRepository(Profile).save({
+        name: dto.name.trim(),
+        phoneNumber: phone,
+        role: "participant" as const,
+        schoolId: school.id,
+      });
+      return em.getRepository(Participant).save({
+        externalId: dto.external_id,
+        profileId: profile.id,
+        name: dto.name.trim(),
+        schoolId: school.id,
+        description: dto.description?.trim() || null,
+        photoUrl: dto.photo_url ?? null,
+        status: dto.status ?? ("active" as const),
+      });
+    });
+    return { created: true, participant: created };
+  }
+
+  /** Snapshot peserta by external_id (verifikasi replikasi). */
+  @Get("participants/by-external/:externalId")
+  async getByExternal(@Param("externalId") externalId: string) {
+    const participant = await this.participants.findOneBy({ externalId });
+    if (!participant) throw new NotFoundException("Peserta tidak ditemukan.");
+    const contents = await this.contents.findBy({
+      participantId: participant.id,
+    });
+    return { participant, contents };
+  }
+
+  /** Upsert peserta by nomor WA (dipertahankan; kunci = nomor). */
   @Post("participants")
   async upsert(@Body() dto: UpsertParticipantDto) {
     const phone = normalizePhone(dto.phone_number);

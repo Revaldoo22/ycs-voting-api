@@ -1,0 +1,10 @@
+node_modules
+dist
+.next
+.git
+.env
+*.log
+uploads/*
+!uploads/.gitkeep
+npm-debug.log*
+.eslintcache

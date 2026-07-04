@@ -12,6 +12,14 @@ export class Participant {
   @PrimaryGeneratedColumn("uuid")
   id!: string;
 
+  /**
+   * ID peserta di aplikasi pendaftaran (web kedua) yang jadi sumber data.
+   * Kunci sinkronisasi: upsert/replikasi di-address pakai ini. Unik, nullable
+   * (peserta yang dibuat manual di admin sini boleh tanpa external_id).
+   */
+  @Column({ name: "external_id", type: "text", nullable: true, unique: true })
+  externalId!: string | null;
+
   /** Linked login account (profiles.id). Null after account deletion. */
   @Column({ name: "profile_id", type: "uuid", nullable: true })
   profileId!: string | null;
