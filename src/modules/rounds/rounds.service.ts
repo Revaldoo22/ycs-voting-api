@@ -51,8 +51,14 @@ export class RoundsService {
                where rs.round_id = r.id)::int                       as school_count,
              (select count(*) from round_schools rs
                where rs.round_id = r.id and rs.status = 'lolos')::int as lolos_count,
-             (select coalesce(sum(dv.points), 0) from daily_votes dv
-               where dv.round_id = r.id)::int                       as total_points
+             (select coalesce(sum(
+                 rs.carry_points + coalesce((
+                   select sum(p.total_points) from participants p
+                   where p.school_id = rs.school_id and p.status = 'active'
+                 ), 0)
+               ), 0)
+              from round_schools rs
+              where rs.round_id = r.id)::int                        as total_points
       from rounds r
       order by r.created_at`);
   }
@@ -104,24 +110,25 @@ export class RoundsService {
   /** Daftar sekolah dalam round (nama, kabupaten, status, skor). */
   async roundSchoolList(id: string) {
     const round = await this.rounds.findOneBy({ id });
-    if (round && round.status !== "closed") await this.syncActiveSchools(id);
+    // Hanya round AKTIF yang auto-terisi. Draft tetap kosong sampai
+    // diaktifkan; closed sudah final.
+    if (round && round.status === "active") await this.syncActiveSchools(id);
     return this.db.query(
       `select rs.school_id, rs.status, s.name as school_name,
               coalesce(rg.name, 'Tanpa Kabupaten') as region_name,
               rs.carry_points::int as carry_points,
-              coalesce(rv.points, 0)::int as round_points,
-              (rs.carry_points + coalesce(rv.points, 0))::int as points,
+              coalesce(pt.points, 0)::int as round_points,
+              (rs.carry_points + coalesce(pt.points, 0))::int as points,
               (select count(*) from participants p
                where p.school_id = s.id and p.status = 'active')::int as participants
        from round_schools rs
        join schools s on s.id = rs.school_id
        left join regions rg on rg.id = s.region_id
        left join lateral (
-         select coalesce(sum(dv.points), 0) as points
-         from daily_votes dv
-         join participants p on p.id = dv.participant_id
-         where dv.round_id = $1 and p.school_id = rs.school_id
-       ) rv on true
+         select coalesce(sum(p.total_points), 0) as points
+         from participants p
+         where p.school_id = rs.school_id and p.status = 'active'
+       ) pt on true
        where rs.round_id = $1
        order by region_name, points desc`,
       [id],
@@ -282,19 +289,26 @@ export class RoundsService {
    */
   async standings(id: string) {
     const round = await this.rounds.findOneBy({ id });
-    if (round && round.status !== "closed") await this.syncActiveSchools(id);
+    // Hanya round AKTIF yang auto-terisi. Draft tetap kosong sampai
+    // diaktifkan; closed sudah final.
+    if (round && round.status === "active") await this.syncActiveSchools(id);
     return this.db.query(
       `select rs.school_id, s.name as school_name, rs.status,
               rg.id as region_id, coalesce(rg.name, 'Tanpa Kabupaten') as region_name,
               rs.carry_points::int as carry_points,
-              coalesce(rv.points, 0)::int as round_points,
-              (rs.carry_points + coalesce(rv.points, 0))::int as points,
+              coalesce(pt.points, 0)::int as round_points,
+              (rs.carry_points + coalesce(pt.points, 0))::int as points,
               coalesce(rv.votes, 0)::int as votes
        from round_schools rs
        join schools s on s.id = rs.school_id
        left join regions rg on rg.id = s.region_id
        left join lateral (
-         select coalesce(sum(dv.points), 0) as points, count(*) as votes
+         select coalesce(sum(p.total_points), 0) as points
+         from participants p
+         where p.school_id = rs.school_id and p.status = 'active'
+       ) pt on true
+       left join lateral (
+         select count(*) as votes
          from daily_votes dv
          join participants p on p.id = dv.participant_id
          where dv.round_id = $1 and p.school_id = rs.school_id
@@ -352,10 +366,9 @@ export class RoundsService {
            join schools s on s.id = rs.school_id
            left join regions rg on rg.id = s.region_id
            left join lateral (
-             select coalesce(sum(dv.points), 0) as points
-             from daily_votes dv
-             join participants p on p.id = dv.participant_id
-             where dv.round_id = $1 and p.school_id = rs.school_id
+             select coalesce(sum(p.total_points), 0) as points
+             from participants p
+             where p.school_id = rs.school_id and p.status = 'active'
            ) v on true
            where rs.round_id = $1
          )
@@ -408,10 +421,9 @@ export class RoundsService {
                 floor((rs.carry_points + coalesce(v.points, 0)) * 0.5)::int
          from round_schools rs
          left join lateral (
-           select coalesce(sum(dv.points), 0) as points
-           from daily_votes dv
-           join participants p on p.id = dv.participant_id
-           where dv.round_id = $1 and p.school_id = rs.school_id
+           select coalesce(sum(p.total_points), 0) as points
+           from participants p
+           where p.school_id = rs.school_id and p.status = 'active'
          ) v on true
          where rs.round_id = $1 and rs.status = 'gugur'
          on conflict (round_id, school_id) do nothing`,
