@@ -21,15 +21,34 @@ export class Round {
   @Column({ type: "text", default: "draft" })
   status!: RoundStatus;
 
-  /** Default jumlah sekolah lolos per kabupaten saat gelombang ditutup. */
+  /** Default jumlah sekolah lolos saat gelombang ditutup. */
   @Column({ name: "top_n", type: "int", default: 1 })
   topN!: number;
+
+  /**
+   * Cara menentukan yang lolos saat tutup:
+   *  - 'per_region': top_n sekolah per kabupaten (default lama)
+   *  - 'global': top_n sekolah teratas lintas kabupaten (mis. 200 semifinalis)
+   */
+  @Column({ name: "select_mode", type: "text", default: "per_region" })
+  selectMode!: "per_region" | "global";
+
+  /** Urutan gelombang (1,2,3…). Menentukan 'gelombang berikutnya' saat tutup. */
+  @Column({ name: "sequence", type: "int", default: 0 })
+  sequence!: number;
 
   @Column({ name: "starts_at", type: "timestamptz", nullable: true })
   startsAt!: Date | null;
 
   @Column({ name: "ends_at", type: "timestamptz", nullable: true })
   endsAt!: Date | null;
+
+  /**
+   * Jadwal auto-close. Cron harian akan menutup + menggulirkan gelombang ini
+   * begitu waktu ini terlewat (selama status masih 'active'). Null = manual.
+   */
+  @Column({ name: "scheduled_close_at", type: "timestamptz", nullable: true })
+  scheduledCloseAt!: Date | null;
 
   @CreateDateColumn({ name: "created_at", type: "timestamptz" })
   createdAt!: Date;
@@ -50,6 +69,14 @@ export class RoundSchool {
 
   @Column({ type: "text", default: "active" })
   status!: RoundSchoolStatus;
+
+  /**
+   * Poin bawaan gelombang. Untuk sekolah gugur yang lanjut ke gelombang
+   * susulan, diisi 50% poin akhir gelombang sebelumnya (poin peserta asli
+   * tak diubah). Ranking round = carry_points + poin vote round ini.
+   */
+  @Column({ name: "carry_points", type: "int", default: 0 })
+  carryPoints!: number;
 
   @CreateDateColumn({ name: "created_at", type: "timestamptz" })
   createdAt!: Date;

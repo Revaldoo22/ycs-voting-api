@@ -11,6 +11,7 @@ import {
   UseGuards,
 } from "@nestjs/common";
 import {
+  IsBoolean,
   IsIn,
   IsInt,
   IsOptional,
@@ -31,6 +32,37 @@ class CreateRoundDto {
   @MinLength(2, { message: "Nama gelombang minimal 2 karakter" })
   @MaxLength(100)
   name!: string;
+}
+
+class CreateFullRoundDto {
+  @IsString()
+  @MinLength(2)
+  @MaxLength(100)
+  name!: string;
+
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  @Max(1000)
+  sequence?: number;
+
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(5000)
+  top_n?: number;
+
+  @IsOptional()
+  @IsIn(["per_region", "global"])
+  select_mode?: "per_region" | "global";
+
+  @IsOptional()
+  @IsString()
+  scheduled_close_at?: string | null;
+
+  @IsOptional()
+  @IsBoolean()
+  activate?: boolean;
 }
 
 class PopulateDto {
@@ -60,8 +92,22 @@ class UpdateRoundDto {
   @IsOptional()
   @IsInt()
   @Min(1)
-  @Max(100)
+  @Max(5000)
   top_n?: number;
+
+  @IsOptional()
+  @IsIn(["per_region", "global"])
+  select_mode?: "per_region" | "global";
+
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  @Max(1000)
+  sequence?: number;
+
+  @IsOptional()
+  @IsString()
+  scheduled_close_at?: string | null;
 }
 
 class AddSchoolDto {
@@ -73,8 +119,22 @@ class CloseDto {
   @IsOptional()
   @IsInt()
   @Min(1)
-  @Max(100)
+  @Max(5000)
   top_n?: number;
+
+  @IsOptional()
+  @IsIn(["per_region", "global"])
+  select_mode?: "per_region" | "global";
+}
+
+class BotBoostDto {
+  @IsUUID()
+  school_id!: string;
+
+  @IsInt()
+  @Min(1)
+  @Max(10000)
+  votes!: number;
 }
 
 @Controller("admin/rounds")
@@ -91,6 +151,11 @@ export class RoundsController {
   @Post()
   create(@Body() dto: CreateRoundDto) {
     return this.rounds.create(dto.name);
+  }
+
+  @Post("full")
+  createFull(@Body() dto: CreateFullRoundDto) {
+    return this.rounds.createFull(dto);
   }
 
   @Get(":id/standings")
@@ -133,7 +198,17 @@ export class RoundsController {
 
   @Post(":id/close")
   close(@Param("id", ParseUUIDPipe) id: string, @Body() dto: CloseDto) {
-    return this.rounds.close(id, dto.top_n);
+    return this.rounds.close(id, dto.top_n, dto.select_mode);
+  }
+
+  @Post(":id/bot-boost")
+  botBoost(@Param("id", ParseUUIDPipe) id: string, @Body() dto: BotBoostDto) {
+    return this.rounds.botBoost(id, dto.school_id, dto.votes);
+  }
+
+  @Delete(":id/bot-boost")
+  removeBotVotes(@Param("id", ParseUUIDPipe) id: string) {
+    return this.rounds.removeBotVotes(id);
   }
 
   @Delete(":id")

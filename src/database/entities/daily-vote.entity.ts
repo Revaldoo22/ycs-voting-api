@@ -33,6 +33,11 @@ export class DailyVote {
   @Column({ type: "int", default: 5 })
   points!: number;
 
+  /** Vote sintetis yang dibuat admin (boost). Bisa di-rollback per gelombang. */
+  @Column({ name: "is_bot", type: "boolean", default: false })
+  @Index("dv_is_bot")
+  isBot!: boolean;
+
   @Column({ name: "device_fingerprint", type: "text", nullable: true })
   deviceFingerprint!: string | null;
 
