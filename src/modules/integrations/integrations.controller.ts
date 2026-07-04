@@ -1,9 +1,11 @@
 import {
   Body,
+  ConflictException,
   Controller,
   Get,
   NotFoundException,
   Param,
+  Patch,
   Post,
   Put,
   UseGuards,
@@ -71,6 +73,67 @@ class UpsertParticipantDto {
   status?: "active" | "inactive";
 }
 
+class ChangePhoneDto {
+  @IsString()
+  @MinLength(8)
+  @MaxLength(20)
+  @Matches(/^[0-9+\-\s().]+$/)
+  new_phone!: string;
+}
+
+/** Update peserta by ID — semua field opsional; hanya yang dikirim diubah. */
+class UpdateParticipantDto {
+  @IsOptional()
+  @IsString()
+  @MinLength(2)
+  @MaxLength(100)
+  name?: string;
+
+  @IsOptional()
+  @IsString()
+  @MinLength(8)
+  @MaxLength(20)
+  @Matches(/^[0-9+\-\s().]+$/)
+  phone_number?: string;
+
+  @IsOptional()
+  @IsString()
+  @MinLength(2)
+  @MaxLength(150)
+  school_name?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(10)
+  region_code?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(1000)
+  description?: string;
+
+  @IsOptional()
+  @IsUrl({ require_tld: false })
+  photo_url?: string;
+
+  @IsOptional()
+  @IsIn(["active", "inactive"])
+  status?: "active" | "inactive";
+}
+
+/** Upsert sekolah by nama (case-insensitive) + petakan kabupaten. */
+class UpsertSchoolDto {
+  @IsString()
+  @MinLength(2)
+  @MaxLength(150)
+  name!: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(10)
+  region_code?: string;
+}
+
 class ContentItemDto {
   @IsIn(["engage", "sound"])
   kind!: "engage" | "sound";
@@ -122,20 +185,24 @@ export class IntegrationsController {
     return this.participants.findOneBy({ profileId: profile.id });
   }
 
-  /** Upsert peserta by nomor WA. Balikan { created, participant }. */
-  @Post("participants")
-  async upsert(@Body() dto: UpsertParticipantDto) {
-    const phone = normalizePhone(dto.phone_number);
-
-    // Sekolah find-or-create; kalau ada region_code, petakan kabupatennya.
-    const school = await this.schools.createOrGet({ name: dto.school_name });
-    if (dto.region_code && !school.regionId) {
-      const region = await this.regions.findOneBy({ code: dto.region_code });
+  /** Find-or-create sekolah + petakan kabupaten via kode BPS (kalau ada). */
+  private async resolveSchool(name: string, regionCode?: string) {
+    const school = await this.schools.createOrGet({ name });
+    if (regionCode && !school.regionId) {
+      const region = await this.regions.findOneBy({ code: regionCode });
       if (region) {
         school.regionId = region.id;
         await this.db.getRepository("schools").save(school);
       }
     }
+    return school;
+  }
+
+  /** Upsert peserta by nomor WA. Balikan { created, participant }. */
+  @Post("participants")
+  async upsert(@Body() dto: UpsertParticipantDto) {
+    const phone = normalizePhone(dto.phone_number);
+    const school = await this.resolveSchool(dto.school_name, dto.region_code);
 
     const existing = await this.findByPhone(phone);
     if (existing) {
@@ -181,6 +248,102 @@ export class IntegrationsController {
       participantId: participant.id,
     });
     return { participant, contents };
+  }
+
+  /**
+   * Ganti nomor WA peserta. Nomor = identitas login + anti-cheat (self-vote),
+   * jadi diubah di profiles. Nomor baru harus belum dipakai akun lain.
+   */
+  @Patch("participants/:phone/phone")
+  async changePhone(
+    @Param("phone") phone: string,
+    @Body() dto: ChangePhoneDto,
+  ) {
+    const oldPhone = normalizePhone(phone);
+    const newPhone = normalizePhone(dto.new_phone);
+
+    const profile = await this.profiles.findOneBy({
+      phoneNumber: oldPhone,
+      role: "participant",
+    });
+    if (!profile) throw new NotFoundException("Peserta tidak ditemukan.");
+
+    if (newPhone === oldPhone) {
+      return { ok: true, changed: false };
+    }
+
+    // Nomor baru tidak boleh sudah dipakai akun lain (peran apa pun).
+    const taken = await this.profiles.findOneBy({ phoneNumber: newPhone });
+    if (taken) {
+      throw new ConflictException("Nomor WhatsApp baru sudah dipakai akun lain.");
+    }
+
+    profile.phoneNumber = newPhone;
+    await this.profiles.save(profile);
+    return { ok: true, changed: true, phone_number: newPhone };
+  }
+
+  /**
+   * Update peserta by ID (kunci sync andal dari web kedua). Semua field
+   * opsional; nomor WA pun bisa diganti di sini (dicek unik).
+   */
+  @Patch("participants/id/:id")
+  async updateById(
+    @Param("id") id: string,
+    @Body() dto: UpdateParticipantDto,
+  ) {
+    const participant = await this.participants.findOneBy({ id });
+    if (!participant) throw new NotFoundException("Peserta tidak ditemukan.");
+    const profile = participant.profileId
+      ? await this.profiles.findOneBy({ id: participant.profileId })
+      : null;
+
+    // Ganti nomor WA (cek unik lintas akun).
+    if (dto.phone_number !== undefined && profile) {
+      const newPhone = normalizePhone(dto.phone_number);
+      if (newPhone !== profile.phoneNumber) {
+        const taken = await this.profiles.findOneBy({ phoneNumber: newPhone });
+        if (taken) {
+          throw new ConflictException(
+            "Nomor WhatsApp sudah dipakai akun lain.",
+          );
+        }
+        profile.phoneNumber = newPhone;
+      }
+    }
+
+    // Sekolah (find-or-create + petakan kabupaten).
+    if (dto.school_name !== undefined) {
+      const school = await this.resolveSchool(dto.school_name, dto.region_code);
+      participant.schoolId = school.id;
+      if (profile) profile.schoolId = school.id;
+    }
+
+    if (dto.name !== undefined) {
+      participant.name = dto.name.trim();
+      if (profile) profile.name = dto.name.trim();
+    }
+    if (dto.description !== undefined)
+      participant.description = dto.description?.trim() || null;
+    if (dto.photo_url !== undefined) participant.photoUrl = dto.photo_url;
+    if (dto.status !== undefined) participant.status = dto.status;
+
+    if (profile) await this.profiles.save(profile);
+    const saved = await this.participants.save(participant);
+    return { ok: true, participant: saved };
+  }
+
+  /** Daftar kabupaten (untuk web kedua memetakan sekolah ke kabupaten). */
+  @Get("regions")
+  listRegions() {
+    return this.regions.find({ order: { name: "ASC" } });
+  }
+
+  /** Upsert sekolah by nama (case-insensitive) + set kabupaten via kode BPS. */
+  @Post("schools")
+  async upsertSchool(@Body() dto: UpsertSchoolDto) {
+    const school = await this.resolveSchool(dto.name, dto.region_code);
+    return { ok: true, school };
   }
 
   /** Full-sync konten peserta (replace seluruh daftar) — idempoten. */
