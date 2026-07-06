@@ -20,6 +20,10 @@ import { ENTITIES } from "./entities";
         database: config.get<string>("db.name"),
         entities: ENTITIES,
         synchronize: config.get<boolean>("db.sync"),
+        // Saat deploy (Docker/Dokploy), DB kadang belum siap ketika API start.
+        // Retry lebih longgar agar tak crash saat boot.
+        retryAttempts: 15,
+        retryDelay: 4000,
         // Hari voting mengikuti WIB, bukan zona server — CURRENT_DATE,
         // vote_date, dan submit_date semuanya bergantung ini.
         extra: { options: "-c timezone=Asia/Jakarta" },
