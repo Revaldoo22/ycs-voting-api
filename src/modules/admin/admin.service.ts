@@ -37,7 +37,8 @@ export class AdminService {
   async stats() {
     const rows = await this.db.query(`
       select
-        (select count(*) from schools)::int                          as total_schools,
+        (select count(distinct school_id) from participants
+          where school_id is not null)::int                          as total_schools,
         (select count(*) from participants)::int                     as total_participants,
         (select count(distinct voter_phone) from daily_votes
           where voter_phone is not null)::int                        as total_voters,

@@ -35,6 +35,8 @@ export class AuthService {
       sub: user.id,
       role: user.role,
       name: user.name ?? undefined,
+      // Dipakai middleware frontend untuk gate: voter belum wizard → /onboarding.
+      onboarded: user.onboarded,
     });
   }
 
@@ -250,13 +252,16 @@ export class AuthService {
     user.name = dto.name.trim();
     user.phoneNumber = phone;
     user.schoolId = schoolId;
-    user.voterClass = dto.class;
+    user.voterClass = dto.class?.trim() || null;
     user.voterStatus = dto.status;
     user.regionId = regionId;
     user.collegeIntent = dto.college_intent;
     user.onboarded = true;
     await this.profiles.save(user);
 
-    return { ok: true, redirect: "/" };
+    // Token lama masih membawa onboarded=false → terbitkan ulang agar gate
+    // middleware langsung meloloskan tanpa harus login ulang.
+    const token = await this.sign(user);
+    return { ok: true, redirect: "/", token };
   }
 }

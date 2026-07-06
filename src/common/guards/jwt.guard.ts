@@ -11,6 +11,7 @@ export interface JwtPayload {
   sub: string; // profile id
   role: string;
   name?: string;
+  onboarded?: boolean;
 }
 
 export const AUTH_COOKIE = "idola_token";

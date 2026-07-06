@@ -75,11 +75,17 @@ export class AuthController {
     }
   }
 
-  /** Voter onboarding wizard submit. */
+  /** Voter onboarding wizard submit. Terbitkan ulang cookie (onboarded=true). */
   @Post("onboarding")
   @UseGuards(JwtGuard)
-  onboarding(@CurrentUser() user: JwtPayload, @Body() dto: OnboardingDto) {
-    return this.auth.completeOnboarding(user.sub, dto);
+  async onboarding(
+    @CurrentUser() user: JwtPayload,
+    @Body() dto: OnboardingDto,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    const { token, ...rest } = await this.auth.completeOnboarding(user.sub, dto);
+    res.cookie(AUTH_COOKIE, token, COOKIE_OPTS);
+    return rest;
   }
 
   /** Edit akun voter (password/sekolah/dll — bukan WA/foto). */

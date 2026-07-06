@@ -31,8 +31,11 @@ export class OnboardingDto {
   @MaxLength(150)
   school_name?: string;
 
-  @IsIn(["10", "11", "12", "alumni"], { message: "Pilih kelas" })
-  class!: string;
+  /** Kelas: wajib untuk siswa (10/11/12/alumni), bebas/opsional utk guru/keluarga. */
+  @IsOptional()
+  @IsString()
+  @MaxLength(50)
+  class?: string;
 
   @IsIn(["teman_sekolah", "guru", "keluarga", "teman_luar"], {
     message: "Pilih status",
