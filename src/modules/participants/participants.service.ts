@@ -31,11 +31,15 @@ export class ParticipantsService {
     return this.dataSource.query(`
       select p.*,
              case when s.id is null then null
-                  else json_build_object('id', s.id, 'name', s.name) end as schools,
+                  else json_build_object('id', s.id, 'name', s.name,
+                                         'kabupaten', reg.name,
+                                         'provinsi', prov.name) end as schools,
              case when pr.id is null then null
                   else json_build_object('phone_number', pr.phone_number) end as profiles
       from participants p
       left join schools s on s.id = p.school_id
+      left join regions reg on reg.id = s.region_id
+      left join regions prov on prov.id = reg.parent_id
       left join profiles pr on pr.id = p.profile_id
       order by p.total_points desc`);
   }

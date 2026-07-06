@@ -16,10 +16,24 @@ export class SchoolsService {
     private readonly participants: Repository<Participant>,
   ) {}
 
+  /**
+   * Hanya sekolah yang PUNYA peserta — inilah yang relevan dikelola admin.
+   * Master 36rb+ sekolah (dari CSV) tak ditampilkan di sini; itu cuma
+   * referensi untuk wizard voter.
+   */
   list() {
     return this.schools
       .createQueryBuilder("s")
       .leftJoinAndMapOne("s.region", "regions", "r", "r.id = s.region_id")
+      .where((qb) => {
+        const sub = qb
+          .subQuery()
+          .select("1")
+          .from("participants", "p")
+          .where("p.school_id = s.id")
+          .getQuery();
+        return `exists ${sub}`;
+      })
       .orderBy("s.name", "ASC")
       .getMany();
   }

@@ -41,8 +41,8 @@ Body:
   "email": "budi@sekolah.sch.id",
   "name": "Budi Santoso",
   "phone_number": "08123456789",
+  "npsn": "20325001",
   "school_name": "SMA Negeri 1 Semarang",
-  "region_code": "3374",
   "external_id": "PST-000123",
   "description": "opsional",
   "photo_url": "https://cdn-kalian.com/foto/budi.jpg",
@@ -55,10 +55,16 @@ Body:
 | `email` | ✅ | **kunci sync** + dasar pencocokan voter |
 | `name` | ✅ | 2–100 |
 | `phone_number` | ✅ | 8–20 digit |
-| `school_name` | ✅ | sekolah auto-dibuat kalau belum ada |
-| `region_code` | — | kode BPS kabupaten |
+| `npsn` | — | **paling disarankan** — NPSN sekolah dari data master. Kalau cocok, **kabupaten & provinsi otomatis terisi** (tak perlu region_code). |
+| `school_name` | — | dipakai kalau `npsn` tak dikirim/tak cocok (sekolah dibuat by nama) |
+| `region_code` | — | kode BPS kabupaten — hanya perlu kalau pakai `school_name` & ingin memetakan kabupaten |
 | `external_id` | — | ID kalian (disimpan, opsional) |
 | `description` / `photo_url` / `status` | — | opsional |
+
+> **Cukup kirim `npsn`.** Sistem sudah punya master 36rb+ sekolah beserta
+> kabupaten & provinsinya (kode BPS). Dari NPSN, wilayah langsung diketahui —
+> kalian tak perlu kirim `region_code` maupun nama sekolah. Kirim `school_name`
+> hanya kalau sekolah tak ada di master (mis. sekolah baru).
 
 Respon: `{ "created": true|false, "participant": { ... } }`
 
@@ -99,10 +105,12 @@ Respon: `{ "ok": true, "count": 2 }`
 
 ---
 
-## 3. Sekolah & Kabupaten
+## 3. Sekolah & Kabupaten (opsional)
 
-**GET** `/regions` — daftar kabupaten (id, name, code BPS, province). Pakai
-`code` untuk memetakan sekolah ke kabupaten.
+Biasanya **tak perlu** — cukup kirim `npsn` di sync peserta. Endpoint ini hanya
+kalau kalian mengelola sekolah/wilayah secara terpisah.
+
+**GET** `/regions` — daftar kabupaten (id, name, code BPS).
 
 **POST** `/schools` — upsert sekolah by nama (case-insensitive):
 
@@ -112,8 +120,8 @@ Respon: `{ "ok": true, "count": 2 }`
 
 Respon: `{ "ok": true, "school": { ... } }`
 
-> Sekolah juga otomatis dibuat saat sync peserta — endpoint ini berguna kalau
-> web pendaftaran mengelola master sekolah secara terpisah.
+> Peserta yang di-sync dengan `npsn` sudah otomatis punya kabupaten & provinsi.
+> Data itu ikut di respon peserta (`participant.school` → `kabupaten`, `provinsi`).
 
 ---
 
@@ -123,10 +131,10 @@ Respon: `{ "ok": true, "school": { ... } }`
 KEY=<API_KEY>
 BASE=https://api-idola.stekom.ac.id/api/integrations
 
-# 1. Sync peserta (create/update) by email
+# 1. Sync peserta (create/update) by email — cukup NPSN, wilayah otomatis
 curl -X POST $BASE/participants/sync \
   -H "X-Api-Key: $KEY" -H "Content-Type: application/json" \
-  -d '{"email":"budi@sekolah.sch.id","name":"Budi","phone_number":"08123456789","school_name":"SMA 1 Semarang","region_code":"3374"}'
+  -d '{"email":"budi@sekolah.sch.id","name":"Budi","phone_number":"08123456789","npsn":"20325001"}'
 
 # 2. Sync konten by email
 curl -X PUT $BASE/participants/by-email/budi@sekolah.sch.id/contents \

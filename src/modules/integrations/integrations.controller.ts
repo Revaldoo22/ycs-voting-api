@@ -31,6 +31,7 @@ import {
   ParticipantContent,
   Profile,
   Region,
+  School,
 } from "../../database/entities";
 import { ApiKeyGuard } from "../../common/guards/api-key.guard";
 import { normalizePhone } from "../../common/utils/normalize";
@@ -148,10 +149,19 @@ class SyncParticipantDto {
   @Matches(/^[0-9+\-\s().]+$/)
   phone_number!: string;
 
+  /** NPSN sekolah (dari data master). Kalau cocok, kabupaten/provinsi otomatis
+   *  ikut — tak perlu region_code. Paling direkomendasikan. */
+  @IsOptional()
+  @IsString()
+  @MaxLength(20)
+  npsn?: string;
+
+  /** Nama sekolah — dipakai kalau npsn tak dikirim/tak cocok (find-or-create). */
+  @IsOptional()
   @IsString()
   @MinLength(2)
   @MaxLength(150)
-  school_name!: string;
+  school_name?: string;
 
   @IsOptional()
   @IsString()
@@ -236,11 +246,31 @@ export class IntegrationsController {
     return this.participants.findOneBy({ profileId: profile.id });
   }
 
-  /** Find-or-create sekolah + petakan kabupaten via kode BPS (kalau ada). */
-  private async resolveSchool(name: string, regionCode?: string) {
+  /**
+   * Resolusi sekolah untuk sync peserta. Prioritas:
+   *   1. `npsn` → cocokkan sekolah master (dari CSV) — region/kabupaten sudah
+   *      terisi otomatis. Paling andal.
+   *   2. `name` → find-or-create by nama; petakan kabupaten via `regionCode`
+   *      kalau dikirim.
+   */
+  private async resolveSchool(opts: {
+    npsn?: string;
+    name?: string;
+    regionCode?: string;
+  }) {
+    // 1. by NPSN — sekolah master, region sudah ikut.
+    if (opts.npsn?.trim()) {
+      const master = await this.db
+        .getRepository(School)
+        .findOneBy({ npsn: opts.npsn.trim() });
+      if (master) return master;
+    }
+    // 2. by nama (find-or-create) + petakan region opsional.
+    const name = (opts.name ?? "").trim();
+    if (!name) return null;
     const school = await this.schools.createOrGet({ name });
-    if (regionCode && !school.regionId) {
-      const region = await this.regions.findOneBy({ code: regionCode });
+    if (opts.regionCode && !school.regionId) {
+      const region = await this.regions.findOneBy({ code: opts.regionCode });
       if (region) {
         school.regionId = region.id;
         await this.db.getRepository("schools").save(school);
@@ -259,7 +289,11 @@ export class IntegrationsController {
   async syncParticipant(@Body() dto: SyncParticipantDto) {
     const phone = normalizePhone(dto.phone_number);
     const email = dto.email.trim().toLowerCase();
-    const school = await this.resolveSchool(dto.school_name, dto.region_code);
+    const school = await this.resolveSchool({
+      npsn: dto.npsn,
+      name: dto.school_name,
+      regionCode: dto.region_code,
+    });
 
     // Kunci: email peserta. Adopsi peserta lama by nomor kalau email belum ada.
     let participant = await this.participants.findOneBy({ email });
@@ -287,7 +321,7 @@ export class IntegrationsController {
       participant.email = email;
       if (dto.external_id !== undefined) participant.externalId = dto.external_id;
       participant.name = dto.name.trim();
-      participant.schoolId = school.id;
+      participant.schoolId = school?.id ?? null;
       participant.description = dto.description?.trim() || null;
       if (dto.photo_url !== undefined) participant.photoUrl = dto.photo_url;
       if (dto.status !== undefined) participant.status = dto.status;
@@ -299,7 +333,7 @@ export class IntegrationsController {
             name: dto.name.trim(),
             phoneNumber: phone,
             email,
-            schoolId: school.id,
+            schoolId: school?.id ?? null,
           },
         );
       }
@@ -313,14 +347,14 @@ export class IntegrationsController {
         phoneNumber: phone,
         email,
         role: "participant" as const,
-        schoolId: school.id,
+        schoolId: school?.id ?? null,
       });
       return em.getRepository(Participant).save({
         email,
         externalId: dto.external_id ?? null,
         profileId: profile.id,
         name: dto.name.trim(),
-        schoolId: school.id,
+        schoolId: school?.id ?? null,
         description: dto.description?.trim() || null,
         photoUrl: dto.photo_url ?? null,
         status: dto.status ?? ("active" as const),
@@ -345,12 +379,12 @@ export class IntegrationsController {
   @Post("participants")
   async upsert(@Body() dto: UpsertParticipantDto) {
     const phone = normalizePhone(dto.phone_number);
-    const school = await this.resolveSchool(dto.school_name, dto.region_code);
+    const school = await this.resolveSchool({ name: dto.school_name, regionCode: dto.region_code });
 
     const existing = await this.findByPhone(phone);
     if (existing) {
       existing.name = dto.name.trim();
-      existing.schoolId = school.id;
+      existing.schoolId = school?.id ?? null;
       if (dto.description !== undefined)
         existing.description = dto.description?.trim() || null;
       if (dto.photo_url !== undefined) existing.photoUrl = dto.photo_url;
@@ -358,7 +392,7 @@ export class IntegrationsController {
       const saved = await this.participants.save(existing);
       await this.profiles.update(
         { phoneNumber: phone },
-        { name: dto.name.trim(), schoolId: school.id },
+        { name: dto.name.trim(), schoolId: school?.id ?? null },
       );
       return { created: false, participant: saved };
     }
@@ -368,12 +402,12 @@ export class IntegrationsController {
         name: dto.name.trim(),
         phoneNumber: phone,
         role: "participant" as const,
-        schoolId: school.id,
+        schoolId: school?.id ?? null,
       });
       return em.getRepository(Participant).save({
         profileId: profile.id,
         name: dto.name.trim(),
-        schoolId: school.id,
+        schoolId: school?.id ?? null,
         description: dto.description?.trim() || null,
         photoUrl: dto.photo_url ?? null,
         status: dto.status ?? ("active" as const),
@@ -457,9 +491,9 @@ export class IntegrationsController {
 
     // Sekolah (find-or-create + petakan kabupaten).
     if (dto.school_name !== undefined) {
-      const school = await this.resolveSchool(dto.school_name, dto.region_code);
-      participant.schoolId = school.id;
-      if (profile) profile.schoolId = school.id;
+      const school = await this.resolveSchool({ name: dto.school_name, regionCode: dto.region_code });
+      participant.schoolId = school?.id ?? null;
+      if (profile) profile.schoolId = school?.id ?? null;
     }
 
     if (dto.name !== undefined) {
@@ -485,7 +519,7 @@ export class IntegrationsController {
   /** Upsert sekolah by nama (case-insensitive) + set kabupaten via kode BPS. */
   @Post("schools")
   async upsertSchool(@Body() dto: UpsertSchoolDto) {
-    const school = await this.resolveSchool(dto.name, dto.region_code);
+    const school = await this.resolveSchool({ name: dto.name, regionCode: dto.region_code });
     return { ok: true, school };
   }
 
