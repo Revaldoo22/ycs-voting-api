@@ -1,97 +1,28 @@
-import {
-  Body,
-  ConflictException,
-  Controller,
-  Delete,
-  Get,
-  NotFoundException,
-  Param,
-  ParseUUIDPipe,
-  Patch,
-  Post,
-  UseGuards,
-} from "@nestjs/common";
-import {
-  IsOptional,
-  IsString,
-  MaxLength,
-  MinLength,
-} from "class-validator";
+import { Controller, Get, Query, UseGuards } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
+import { IsOptional, IsString } from "class-validator";
 import { Repository } from "typeorm";
-import { Region, School } from "../../database/entities";
+import { Region } from "../../database/entities";
 import { JwtGuard } from "../../common/guards/jwt.guard";
 import { RolesGuard } from "../../common/guards/roles.guard";
 import { Roles } from "../../common/decorators/roles.decorator";
 
-class RegionDto {
-  @IsString()
-  @MinLength(2, { message: "Nama kabupaten minimal 2 karakter" })
-  @MaxLength(150)
-  name!: string;
-
-  /** Kode BPS (opsional) — kunci join ke GeoJSON peta. */
+class RegionQuery {
+  /** province | regency | district — default province. */
   @IsOptional()
   @IsString()
-  @MaxLength(10)
-  code?: string;
+  level?: string;
 
+  /** Kode BPS induk (regency butuh provinceCode, district butuh regencyCode). */
   @IsOptional()
   @IsString()
-  @MaxLength(100)
-  province?: string;
+  parent_code?: string;
 }
 
-@Controller("admin/regions")
-@UseGuards(JwtGuard, RolesGuard)
-@Roles("admin")
-export class RegionsController {
-  constructor(
-    @InjectRepository(Region) private readonly regions: Repository<Region>,
-    @InjectRepository(School) private readonly schools: Repository<School>,
-  ) {}
-
-  @Get()
-  list() {
-    return this.regions.find({ order: { name: "ASC" } });
-  }
-
-  @Post()
-  create(@Body() dto: RegionDto) {
-    return this.regions.save(
-      this.regions.create({
-        name: dto.name.trim(),
-        code: dto.code?.trim() || null,
-        province: dto.province?.trim() || null,
-      }),
-    );
-  }
-
-  @Patch(":id")
-  async update(@Param("id", ParseUUIDPipe) id: string, @Body() dto: RegionDto) {
-    const region = await this.regions.findOneBy({ id });
-    if (!region) throw new NotFoundException("Kabupaten tidak ditemukan.");
-    region.name = dto.name.trim();
-    if (dto.code !== undefined) region.code = dto.code?.trim() || null;
-    if (dto.province !== undefined)
-      region.province = dto.province?.trim() || null;
-    return this.regions.save(region);
-  }
-
-  @Delete(":id")
-  async remove(@Param("id", ParseUUIDPipe) id: string) {
-    const used = await this.schools.countBy({ regionId: id });
-    if (used > 0) {
-      throw new ConflictException(
-        `Masih ada ${used} sekolah di kabupaten ini.`,
-      );
-    }
-    const res = await this.regions.delete({ id });
-    if (!res.affected) throw new NotFoundException("Kabupaten tidak ditemukan.");
-    return { ok: true };
-  }
-}
-
+/**
+ * Wilayah hierarkis (dari schools.csv). Dipakai wizard voter: pilih provinsi →
+ * kabupaten → kecamatan (dependent dropdown). Publik (tak butuh login).
+ */
 @Controller("public/regions")
 export class PublicRegionsController {
   constructor(
@@ -99,7 +30,34 @@ export class PublicRegionsController {
   ) {}
 
   @Get()
-  list() {
-    return this.regions.find({ order: { name: "ASC" } });
+  async list(@Query() q: RegionQuery) {
+    const level = (q.level as Region["level"]) || "province";
+    const qb = this.regions
+      .createQueryBuilder("r")
+      .where("r.level = :level", { level })
+      .orderBy("r.name", "ASC");
+    if (q.parent_code) {
+      qb.andWhere(
+        "r.parent_id = (select id from regions where code = :pc)",
+        { pc: q.parent_code },
+      );
+    }
+    return qb.getMany();
+  }
+}
+
+/** Admin: read-only (data wilayah berasal dari import CSV, bukan input manual). */
+@Controller("admin/regions")
+@UseGuards(JwtGuard, RolesGuard)
+@Roles("admin")
+export class RegionsController {
+  constructor(
+    @InjectRepository(Region) private readonly regions: Repository<Region>,
+  ) {}
+
+  @Get()
+  list(@Query() q: RegionQuery) {
+    const level = (q.level as Region["level"]) || "regency";
+    return this.regions.find({ where: { level }, order: { name: "ASC" } });
   }
 }

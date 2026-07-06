@@ -20,6 +20,23 @@ export class PublicController {
       : this.pub.schools();
   }
 
+  /**
+   * Cari sekolah untuk wizard voter (searchable). Filter opsional by wilayah
+   * (regency/district code) + keyword nama/npsn. Dibatasi agar ringan.
+   */
+  @Get("schools/search")
+  searchSchools(
+    @Query("q") q?: string,
+    @Query("regency_code") regencyCode?: string,
+    @Query("district_code") districtCode?: string,
+  ) {
+    return this.pub.searchSchools({
+      q: q?.trim() || undefined,
+      regencyCode: regencyCode?.trim() || undefined,
+      districtCode: districtCode?.trim() || undefined,
+    });
+  }
+
   @Get("participants")
   participants(@Query("school_id") schoolId?: string) {
     return this.pub.participants(schoolId || undefined);

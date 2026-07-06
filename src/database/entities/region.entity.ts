@@ -2,10 +2,17 @@ import {
   Column,
   CreateDateColumn,
   Entity,
+  Index,
   PrimaryGeneratedColumn,
 } from "typeorm";
 
-/** Kabupaten/kota. `code` = kode BPS — kunci join ke GeoJSON peta nanti. */
+export type RegionLevel = "province" | "regency" | "district";
+
+/**
+ * Wilayah administratif bertingkat (provinsi → kabupaten/kota → kecamatan).
+ * `code` = kode BPS (unik lintas level). `parent_id` menautkan ke tingkat di
+ * atasnya (provinsi.parent = null). Diisi dari schools.csv.
+ */
 @Entity("regions")
 export class Region {
   @PrimaryGeneratedColumn("uuid")
@@ -14,11 +21,19 @@ export class Region {
   @Column({ type: "text" })
   name!: string;
 
-  @Column({ type: "text", unique: true, nullable: true })
-  code!: string | null;
+  /** Kode BPS. Unik lintas semua level (provinceCode/regencyCode/districtCode). */
+  @Column({ type: "text", unique: true })
+  @Index("region_code")
+  code!: string;
 
-  @Column({ type: "text", nullable: true })
-  province!: string | null;
+  @Column({ type: "text" })
+  @Index("region_level")
+  level!: RegionLevel;
+
+  /** Tingkat di atasnya: kabupaten→provinsi, kecamatan→kabupaten. Null = provinsi. */
+  @Column({ name: "parent_id", type: "uuid", nullable: true })
+  @Index("region_parent")
+  parentId!: string | null;
 
   @CreateDateColumn({ name: "created_at", type: "timestamptz" })
   createdAt!: Date;

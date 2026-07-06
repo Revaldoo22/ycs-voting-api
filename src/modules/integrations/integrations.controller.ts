@@ -489,23 +489,16 @@ export class IntegrationsController {
     return { ok: true, school };
   }
 
-  /** Full-sync konten peserta (replace seluruh daftar) — idempoten. */
-  @Put("participants/:phone/contents")
-  async syncContents(
-    @Param("phone") phone: string,
-    @Body() dto: SyncContentsDto,
-  ) {
-    const participant = await this.findByPhone(phone);
-    if (!participant) throw new NotFoundException("Peserta tidak ditemukan.");
-
+  /** Full-replace konten peserta (dipakai kedua endpoint di bawah). */
+  private async replaceContents(participantId: string, dto: SyncContentsDto) {
     await this.db.transaction(async (em) => {
       await em
         .getRepository(ParticipantContent)
-        .delete({ participantId: participant.id });
+        .delete({ participantId });
       if (dto.contents.length > 0) {
         await em.getRepository(ParticipantContent).insert(
           dto.contents.map((c) => ({
-            participantId: participant.id,
+            participantId,
             kind: c.kind,
             url: c.url.trim(),
             label: c.label?.trim() || null,
@@ -514,5 +507,28 @@ export class IntegrationsController {
       }
     });
     return { ok: true, count: dto.contents.length };
+  }
+
+  /** Sync konten peserta by EMAIL (utama, konsisten dgn sync peserta). */
+  @Put("participants/by-email/:email/contents")
+  async syncContentsByEmail(
+    @Param("email") emailParam: string,
+    @Body() dto: SyncContentsDto,
+  ) {
+    const email = emailParam.trim().toLowerCase();
+    const participant = await this.participants.findOneBy({ email });
+    if (!participant) throw new NotFoundException("Peserta tidak ditemukan.");
+    return this.replaceContents(participant.id, dto);
+  }
+
+  /** (Legacy) Sync konten by nomor WA. */
+  @Put("participants/:phone/contents")
+  async syncContents(
+    @Param("phone") phone: string,
+    @Body() dto: SyncContentsDto,
+  ) {
+    const participant = await this.findByPhone(phone);
+    if (!participant) throw new NotFoundException("Peserta tidak ditemukan.");
+    return this.replaceContents(participant.id, dto);
   }
 }

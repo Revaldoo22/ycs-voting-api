@@ -604,7 +604,7 @@ export class RoundsService {
    */
   heatmap() {
     return this.db.query(
-      `select rg.id as region_id, rg.name as region_name, rg.code, rg.province,
+      `select rg.id as region_id, rg.name as region_name, rg.code,
               count(distinct s.id)::int as schools,
               count(distinct p.id)::int as participants,
               coalesce(sum(p.total_points), 0)::int as points,
@@ -617,7 +617,8 @@ export class RoundsService {
        from regions rg
        left join schools s on s.region_id = rg.id
        left join participants p on p.school_id = s.id and p.status = 'active'
-       group by rg.id, rg.name, rg.code, rg.province
+       where rg.level = 'regency'
+       group by rg.id, rg.name, rg.code
        order by points desc, rg.name`,
     );
   }

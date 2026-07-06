@@ -22,6 +22,34 @@ export class PublicService {
       order by s.name`);
   }
 
+  /** Cari sekolah (wizard voter): filter wilayah + keyword. Limit 50. */
+  searchSchools(f: {
+    q?: string;
+    regencyCode?: string;
+    districtCode?: string;
+  }) {
+    const where: string[] = [];
+    const params: unknown[] = [];
+    if (f.districtCode) {
+      params.push(f.districtCode);
+      where.push(`s.district_code = $${params.length}`);
+    } else if (f.regencyCode) {
+      params.push(f.regencyCode);
+      where.push(`s.regency_code = $${params.length}`);
+    }
+    if (f.q) {
+      params.push(`%${f.q}%`);
+      where.push(`(s.name ilike $${params.length} or s.npsn ilike $${params.length})`);
+    }
+    const clause = where.length ? `where ${where.join(" and ")}` : "";
+    return this.db.query(
+      `select id, name, npsn, jenjang, regency_code, district_code
+       from schools s ${clause}
+       order by s.name limit 50`,
+      params,
+    );
+  }
+
   participants(schoolId?: string) {
     return this.db.query(
       `select p.*,

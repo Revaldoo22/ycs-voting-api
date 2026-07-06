@@ -232,12 +232,27 @@ export class AuthService {
       schoolId = (existing ?? (await this.schools.save({ name }))).id;
     }
 
+    // Region: dari kode BPS kabupaten (regency) sekolah. Fallback ke region
+    // sekolah kalau region_code tak dikirim.
+    let regionId: string | null = null;
+    if (dto.region_code) {
+      const region = await this.profiles.manager.query(
+        `select id from regions where code = $1 and level = 'regency' limit 1`,
+        [dto.region_code],
+      );
+      regionId = region[0]?.id ?? null;
+    }
+    if (!regionId && schoolId) {
+      const sc = await this.schools.findOneBy({ id: schoolId });
+      regionId = sc?.regionId ?? null;
+    }
+
     user.name = dto.name.trim();
     user.phoneNumber = phone;
     user.schoolId = schoolId;
     user.voterClass = dto.class;
     user.voterStatus = dto.status;
-    user.regionId = dto.region_id;
+    user.regionId = regionId;
     user.collegeIntent = dto.college_intent;
     user.onboarded = true;
     await this.profiles.save(user);

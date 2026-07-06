@@ -7,6 +7,7 @@ import {
   MaxLength,
   MinLength,
 } from "class-validator";
+// region ditentukan dari kode BPS kabupaten (regency_code) sekolah terpilih.
 
 export class OnboardingDto {
   @IsString()
@@ -38,8 +39,11 @@ export class OnboardingDto {
   })
   status!: string;
 
-  @IsUUID(undefined, { message: "Pilih kabupaten" })
-  region_id!: string;
+  /** Kode BPS kabupaten (regency) asal — dari sekolah terpilih. */
+  @IsOptional()
+  @IsString()
+  @MaxLength(10)
+  region_code?: string;
 
   @IsIn(["ya", "tidak", "ragu"], { message: "Pilih niat kuliah" })
   college_intent!: "ya" | "tidak" | "ragu";

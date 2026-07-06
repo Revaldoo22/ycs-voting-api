@@ -21,9 +21,11 @@ ENV NODE_ENV=production
 COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/dist ./dist
 COPY --from=build /app/package.json ./package.json
-# Seed scripts — dijalankan manual sekali via `node scripts/seed.mjs`
-# (exec ke container di Dokploy). Tidak jalan otomatis saat start.
+# Seed & import scripts — dijalankan manual sekali via exec di Dokploy.
+# Tidak jalan otomatis saat start.
 COPY --from=build /app/scripts ./scripts
+# Data master sekolah + wilayah (dipakai import-schools.mjs).
+COPY --from=build /app/schools.csv ./schools.csv
 
 # Folder uploads (dipakai static serve lokal; kalau STORAGE_DRIVER=depot,
 # file disimpan remote tapi folder tetap ada agar bootstrap tidak error).
