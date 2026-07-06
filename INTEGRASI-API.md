@@ -3,11 +3,15 @@
 Dokumen singkat buat tim web pendaftaran. Semua endpoint server-ke-server.
 
 **Arsitektur:** web pendaftaran = **sumber data (master)**. Sistem YCS ini =
-**replika**. Kalian distribusikan data ke sini; kunci sinkronnya **`external_id`**
-(ID peserta milik kalian). Kirim ulang `external_id` yang sama = update, bukan
-dobel — kalian tidak perlu menyimpan ID apa pun dari sini.
+**replika**. Kalian distribusikan data ke sini; kunci sinkronnya **`email`**
+peserta. Kirim ulang `email` yang sama = update, bukan dobel — kalian tidak
+perlu menyimpan ID apa pun dari sini.
 
-> **Pakai endpoint no. 1 (Sync by external_id) sebagai jalur utama.** Endpoint
+> **Email juga jadi dasar pencocokan voter:** kalau ada voter yang login SSO
+> Google dengan email sama seperti peserta, dia otomatis ditandai **"Peserta"**
+> dan **tidak bisa vote dirinya sendiri**.
+
+> **Pakai endpoint no. 1 (Sync by email) sebagai jalur utama.** Endpoint
 > lain (by nomor WA / by ID) hanya alternatif/legacy.
 
 ## Auth (wajib tiap request)
@@ -23,22 +27,23 @@ Base URL: `https://<domain-api>/api/integrations`
 
 ---
 
-## 1. Sync Peserta (utama — by external_id)
+## 1. Sync Peserta (utama — by email)
 
 **POST** `/participants/sync`
 
-Kirim data peserta + `external_id` (ID milik kalian). Create kalau baru, update
-kalau `external_id` sudah pernah dikirim. Nomor WA & sekolah ikut disinkron.
+Kirim data peserta + `email` (kunci). Create kalau baru, update kalau `email`
+sudah pernah dikirim. Nomor WA & sekolah ikut disinkron.
 
 Body:
 
 ```json
 {
-  "external_id": "PST-000123",
+  "email": "budi@sekolah.sch.id",
   "name": "Budi Santoso",
   "phone_number": "08123456789",
   "school_name": "SMA Negeri 1 Semarang",
   "region_code": "3374",
+  "external_id": "PST-000123",
   "description": "opsional",
   "photo_url": "https://cdn-kalian.com/foto/budi.jpg",
   "status": "active"
@@ -47,19 +52,20 @@ Body:
 
 | Field | Wajib | Keterangan |
 |-------|-------|-----------|
-| `external_id` | ✅ | ID peserta di sistem kalian (kunci sync) |
+| `email` | ✅ | **kunci sync** + dasar pencocokan voter |
 | `name` | ✅ | 2–100 |
 | `phone_number` | ✅ | 8–20 digit |
 | `school_name` | ✅ | sekolah auto-dibuat kalau belum ada |
 | `region_code` | — | kode BPS kabupaten |
+| `external_id` | — | ID kalian (disimpan, opsional) |
 | `description` / `photo_url` / `status` | — | opsional |
 
 Respon: `{ "created": true|false, "participant": { ... } }`
 
-Verifikasi: **GET** `/participants/by-external/{external_id}`.
+Verifikasi: **GET** `/participants/by-email/{email}`.
 
 > Ganti nama, nomor WA, sekolah, foto, status — semua cukup lewat endpoint ini
-> (kirim ulang dengan `external_id` sama). Nomor baru dicek unik → `409` bila bentrok.
+> (kirim ulang dengan `email` sama). Nomor/email dicek unik → `409` bila bentrok.
 
 ---
 
@@ -200,13 +206,13 @@ Respon: `{ "participant": {...}, "contents": [...] }`
 ## Contoh cepat (curl)
 
 ```bash
-# UTAMA: sync peserta by external_id (create/update)
+# UTAMA: sync peserta by email (create/update)
 curl -X POST https://<domain-api>/api/integrations/participants/sync \
   -H "X-Api-Key: $KEY" -H "Content-Type: application/json" \
-  -d '{"external_id":"PST-000123","name":"Budi","phone_number":"08123456789","school_name":"SMA 1 Semarang","region_code":"3374"}'
+  -d '{"email":"budi@sekolah.sch.id","name":"Budi","phone_number":"08123456789","school_name":"SMA 1 Semarang","region_code":"3374"}'
 
 # Verifikasi
-curl https://<domain-api>/api/integrations/participants/by-external/PST-000123 -H "X-Api-Key: $KEY"
+curl https://<domain-api>/api/integrations/participants/by-email/budi@sekolah.sch.id -H "X-Api-Key: $KEY"
 
 # Daftar kabupaten
 curl https://<domain-api>/api/integrations/regions -H "X-Api-Key: $KEY"
@@ -226,10 +232,11 @@ curl -X PUT https://<domain-api>/api/integrations/participants/08123456789/conte
 
 ## Catatan penting
 
-- **Kunci sync = `external_id`** (ID peserta di sistem kalian). Kirim ulang
-  `external_id` sama = update. Kalian tak perlu simpan ID apa pun dari sini.
+- **Kunci sync = `email`** peserta. Kirim ulang `email` sama = update. Kalian
+  tak perlu simpan ID apa pun dari sini. Email juga menandai voter yang sama
+  sebagai "Peserta" (tak bisa vote diri sendiri).
 - Ganti apa saja (nama, nomor WA, sekolah, foto, status) cukup lewat
-  **POST `/participants/sync`** — kirim ulang data lengkap dengan `external_id` sama.
+  **POST `/participants/sync`** — kirim ulang data lengkap dengan `email` sama.
 - **Foto**: endpoint ini tidak menerima file. Upload foto ke storage kalian dulu, lalu kirim `photo_url`-nya.
 - Sekolah auto-dibuat kalau belum ada; akun login peserta dibuat otomatis (login pakai nomor WA).
 - Nomor WA tetap harus unik antar peserta → `409` bila bentrok.

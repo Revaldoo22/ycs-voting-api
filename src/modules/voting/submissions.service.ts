@@ -3,7 +3,9 @@ import { InjectRepository } from "@nestjs/typeorm";
 import { DataSource, Repository } from "typeorm";
 import {
   ParticipantContent,
+  Profile,
   Quest,
+  School,
   Submission,
   SubmissionProof,
 } from "../../database/entities";
@@ -29,19 +31,55 @@ export class SubmissionsService {
     private readonly antiCheat: AntiCheatService,
   ) {}
 
+  /** Identitas voter dari akun login (sama seperti VotesService). */
+  private async resolveVoter(actorId?: string) {
+    if (!actorId) throw new VoteError("LOGIN_REQUIRED");
+    const profile = await this.dataSource
+      .getRepository(Profile)
+      .findOneBy({ id: actorId });
+    if (!profile || profile.role !== "voter") {
+      throw new VoteError("LOGIN_REQUIRED");
+    }
+    if (!profile.onboarded || !profile.phoneNumber || !profile.email) {
+      throw new VoteError("ONBOARDING_REQUIRED");
+    }
+    const school = profile.schoolId
+      ? await this.dataSource
+          .getRepository(School)
+          .findOneBy({ id: profile.schoolId })
+      : null;
+    return {
+      phone: profile.phoneNumber.trim(),
+      email: profile.email.trim().toLowerCase(),
+      fields: {
+        name: profile.name ?? "",
+        phone_number: profile.phoneNumber,
+        email: profile.email,
+        status: (profile.voterStatus ?? "teman_luar") as string,
+        school: school?.name ?? undefined,
+        class: profile.voterClass ?? undefined,
+      },
+    };
+  }
+
   /** Port of record_submission v6 (migration 0026) — same rules & codes. */
-  async record(d: CreateSubmissionDto) {
-    const phone = d.phone_number.trim();
-    const email = d.email.trim().toLowerCase();
+  async record(d: CreateSubmissionDto, actorId?: string) {
+    // Identitas WAJIB dari akun login (SSO + wizard), bukan dari body.
+    const identity = await this.resolveVoter(actorId);
+    const phone = identity.phone;
+    const email = identity.email;
+    const name = identity.fields.name;
+    d = { ...d, ...identity.fields };
 
     if (!(await this.settings.isEventOpen())) throw new VoteError("EVENTCLOSED");
     if (d.proof_urls.length < 1) throw new VoteError("MISSINGDATA");
     if (d.proof_urls.length > 5) throw new VoteError("TOOMANY");
 
-    const pPhone = await this.antiCheat.participantPhone(d.participant_id);
-    if (pPhone !== null && pPhone === phone) throw new VoteError("SELFVOTE");
+    if (await this.antiCheat.isSelfVote(d.participant_id, email, phone)) {
+      throw new VoteError("SELFVOTE");
+    }
 
-    if (await this.antiCheat.phoneNameConflict(phone, d.name)) {
+    if (await this.antiCheat.phoneNameConflict(phone, name)) {
       throw new VoteError("PHONE_NAME");
     }
 
@@ -102,7 +140,7 @@ export class SubmissionsService {
         proofUrl: d.proof_urls[0],
         proofUrlNorm: normalizeLink(d.proof_urls[0]),
         status: "pending" as const,
-        voterName: d.name.trim(),
+        voterName: name.trim(),
         voterPhone: phone,
         voterEmail: email,
         voterStatus: d.status,

@@ -8,30 +8,34 @@ import {
   IsString,
   IsUUID,
   IsUrl,
-  Matches,
   MaxLength,
   MinLength,
 } from "class-validator";
 
-/** Anonymous voter identity attached to every vote/submission. */
+/**
+ * Identitas voter. TIDAK lagi dikirim klien — server mengisinya dari akun
+ * login (SSO + wizard). Dibiarkan opsional agar body lama tetap diterima,
+ * tapi nilainya selalu ditimpa nilai dari profil sesi.
+ */
 export class VoterInfoDto {
+  @IsOptional()
   @IsString()
-  @MinLength(2, { message: "Nama minimal 2 karakter" })
   @MaxLength(100)
-  name!: string;
+  name?: string;
 
+  @IsOptional()
   @IsString()
-  @MinLength(8, { message: "Nomor WhatsApp minimal 8 digit" })
   @MaxLength(20)
-  @Matches(/^[0-9+\-\s().]+$/, { message: "Nomor WhatsApp tidak valid" })
-  phone_number!: string;
+  phone_number?: string;
 
+  @IsOptional()
   @IsEmail({}, { message: "Email tidak valid" })
   @MaxLength(150)
-  email!: string;
+  email?: string;
 
+  @IsOptional()
   @IsIn(["teman_sekolah", "guru", "keluarga", "teman_luar"])
-  status!: string;
+  status?: string;
 
   @IsOptional()
   @IsString()

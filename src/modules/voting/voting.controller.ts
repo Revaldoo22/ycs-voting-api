@@ -4,19 +4,23 @@ import {
   HttpException,
   Post,
   Req,
+  UseGuards,
 } from "@nestjs/common";
 import { Request } from "express";
 import { VotesService, VoteError } from "./votes.service";
 import { SubmissionsService } from "./submissions.service";
 import { CastVoteDto, CreateSubmissionDto } from "./dto/voter-info.dto";
 import { rateLimit } from "../../common/utils/rate-limit";
-import {
-  ipHashFromRequest,
-  serverHashFromRequest,
-} from "../../common/utils/server-hash";
+import { serverHashFromRequest } from "../../common/utils/server-hash";
+import { JwtGuard, JwtPayload } from "../../common/guards/jwt.guard";
+import { RolesGuard } from "../../common/guards/roles.guard";
+import { Roles } from "../../common/decorators/roles.decorator";
+import { CurrentUser } from "../../common/decorators/current-user.decorator";
 
 /** Same user-facing messages as the old vote-errors.ts / API routes. */
 const MESSAGES: Record<string, [string, number]> = {
+  LOGIN_REQUIRED: ["Masuk dulu untuk memberi dukungan.", 401],
+  ONBOARDING_REQUIRED: ["Lengkapi data akun (wizard) dulu.", 403],
   EVENTCLOSED: ["Event sedang ditutup.", 409],
   ROUND_ENDED: ["Periode gelombang ini sudah berakhir. Tunggu gelombang berikutnya.", 409],
   NOTFOUND: ["Peserta tidak ditemukan.", 400],
@@ -61,10 +65,16 @@ export class VotingController {
     private readonly submissions: SubmissionsService,
   ) {}
 
-  /** Old path parity: POST /api/vote. */
+  /** POST /api/vote — WAJIB login voter (SSO + wizard). Identitas dari sesi. */
   @Post("vote")
-  async vote(@Body() dto: CastVoteDto, @Req() req: Request) {
-    if (!rateLimit(`vote:${dto.fingerprint}`, 20, 60_000)) {
+  @UseGuards(JwtGuard, RolesGuard)
+  @Roles("voter")
+  async vote(
+    @Body() dto: CastVoteDto,
+    @Req() req: Request,
+    @CurrentUser() user: JwtPayload,
+  ) {
+    if (!rateLimit(`vote:${user.sub}`, 20, 60_000)) {
       throw new HttpException(
         { error: "Terlalu banyak percobaan. Coba lagi sebentar." },
         429,
@@ -77,6 +87,7 @@ export class VotingController {
         // IP soft-limit disabled for now (parity with the old app) — pass
         // ipHashFromRequest(req) to re-enable.
         null,
+        user.sub,
       );
       return { ok: true, participant };
     } catch (err) {
@@ -84,18 +95,22 @@ export class VotingController {
     }
   }
 
-  /** Old path parity: POST /api/submissions. */
+  /** POST /api/submissions — WAJIB login voter. Identitas dari sesi. */
   @Post("submissions")
-  async submit(@Body() dto: CreateSubmissionDto, @Req() req: Request) {
-    const ipKey = ipHashFromRequest(req) ?? "noip";
-    if (!rateLimit(`submit:${ipKey}`, 30, 60_000)) {
+  @UseGuards(JwtGuard, RolesGuard)
+  @Roles("voter")
+  async submit(
+    @Body() dto: CreateSubmissionDto,
+    @CurrentUser() user: JwtPayload,
+  ) {
+    if (!rateLimit(`submit:${user.sub}`, 30, 60_000)) {
       throw new HttpException(
         { error: "Terlalu banyak percobaan. Coba lagi sebentar." },
         429,
       );
     }
     try {
-      return await this.submissions.record(dto);
+      return await this.submissions.record(dto, user.sub);
     } catch (err) {
       mapError(err);
     }

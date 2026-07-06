@@ -28,6 +28,26 @@ export class AntiCheatService {
     return row?.phone ?? null;
   }
 
+  /**
+   * Self-vote check by EMAIL & phone. Voter tak boleh vote peserta yang
+   * email atau nomor WA-nya sama dengan miliknya (dia = peserta itu).
+   */
+  async isSelfVote(
+    participantId: string,
+    voterEmail: string,
+    voterPhone: string,
+  ): Promise<boolean> {
+    const p = await this.participants.findOneBy({ id: participantId });
+    if (!p) return false;
+    const email = voterEmail.trim().toLowerCase();
+    const phone = voterPhone.trim();
+    if (p.email && p.email.trim().toLowerCase() === email) return true;
+    // Cocokkan juga nomor WA lewat profil peserta.
+    const pPhone = await this.participantPhone(participantId);
+    if (pPhone && pPhone === phone) return true;
+    return false;
+  }
+
   /** One WhatsApp number must always use the same name (votes + submissions). */
   async phoneNameConflict(phone: string, name: string): Promise<boolean> {
     const norm = name.trim().toLowerCase();

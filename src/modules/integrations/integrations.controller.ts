@@ -13,6 +13,7 @@ import {
 import {
   ArrayMaxSize,
   IsArray,
+  IsEmail,
   IsIn,
   IsOptional,
   IsString,
@@ -122,14 +123,19 @@ class UpdateParticipantDto {
 }
 
 /**
- * Sinkron peserta dari web kedua (master). Di-address pakai external_id
- * (ID milik web kedua). Create kalau baru, update kalau sudah ada.
+ * Sinkron peserta dari web kedua (master). Di-address pakai EMAIL (kunci
+ * idempoten). Create kalau baru, update kalau email sudah ada. Email juga
+ * dasar pencocokan voter (voter SSO email sama = peserta ini).
  */
 class SyncParticipantDto {
+  @IsEmail({}, { message: "Email tidak valid" })
+  @MaxLength(150)
+  email!: string;
+
+  @IsOptional()
   @IsString()
-  @MinLength(1)
   @MaxLength(100)
-  external_id!: string;
+  external_id?: string;
 
   @IsString()
   @MinLength(2)
@@ -244,36 +250,42 @@ export class IntegrationsController {
   }
 
   /**
-   * Sinkron peserta dari web kedua (master) by external_id.
-   * Web kedua = sumber data; sini replika. Create bila external_id baru,
-   * update bila sudah ada. Nomor WA & sekolah ikut disinkron.
+   * Sinkron peserta dari web kedua (master) by EMAIL.
+   * Web kedua = sumber data; sini replika. Create bila email baru, update
+   * bila email sudah ada. Email juga jadi dasar pencocokan voter (voter SSO
+   * dengan email sama = peserta ini → tak boleh vote dirinya).
    */
   @Post("participants/sync")
   async syncParticipant(@Body() dto: SyncParticipantDto) {
     const phone = normalizePhone(dto.phone_number);
+    const email = dto.email.trim().toLowerCase();
     const school = await this.resolveSchool(dto.school_name, dto.region_code);
 
-    let participant = await this.participants.findOneBy({
-      externalId: dto.external_id,
-    });
-    // Belum ada by external_id: coba adopsi peserta lama yang match nomor
-    // (mis. sudah pernah dibuat manual di admin) agar tidak dobel.
+    // Kunci: email peserta. Adopsi peserta lama by nomor kalau email belum ada.
+    let participant = await this.participants.findOneBy({ email });
     if (!participant) {
       const byPhone = await this.findByPhone(phone);
       if (byPhone) participant = byPhone;
     }
 
-    // Nomor WA tidak boleh dipakai akun lain (selain peserta ini sendiri).
-    const clash = await this.profiles.findOneBy({ phoneNumber: phone });
-    if (
-      clash &&
-      (!participant || clash.id !== participant.profileId)
-    ) {
+    // Nomor WA tak boleh dipakai profil LAIN (selain peserta ini).
+    const phoneClash = await this.profiles.findOneBy({ phoneNumber: phone });
+    if (phoneClash && (!participant || phoneClash.id !== participant.profileId)) {
       throw new ConflictException("Nomor WhatsApp sudah dipakai akun lain.");
+    }
+    // Email peserta tak boleh == email VOTER lain (bentrok identitas).
+    const emailClash = await this.profiles.findOneBy({ email });
+    if (
+      emailClash &&
+      emailClash.role !== "participant" &&
+      (!participant || emailClash.id !== participant.profileId)
+    ) {
+      throw new ConflictException("Email sudah dipakai akun voter lain.");
     }
 
     if (participant) {
-      participant.externalId = dto.external_id;
+      participant.email = email;
+      if (dto.external_id !== undefined) participant.externalId = dto.external_id;
       participant.name = dto.name.trim();
       participant.schoolId = school.id;
       participant.description = dto.description?.trim() || null;
@@ -283,22 +295,29 @@ export class IntegrationsController {
       if (participant.profileId) {
         await this.profiles.update(
           { id: participant.profileId },
-          { name: dto.name.trim(), phoneNumber: phone, schoolId: school.id },
+          {
+            name: dto.name.trim(),
+            phoneNumber: phone,
+            email,
+            schoolId: school.id,
+          },
         );
       }
       return { created: false, participant: saved };
     }
 
-    // Peserta baru: bikin profil + participant sekaligus.
+    // Peserta baru: profil + participant. Email disimpan di keduanya.
     const created = await this.db.transaction(async (em) => {
       const profile = await em.getRepository(Profile).save({
         name: dto.name.trim(),
         phoneNumber: phone,
+        email,
         role: "participant" as const,
         schoolId: school.id,
       });
       return em.getRepository(Participant).save({
-        externalId: dto.external_id,
+        email,
+        externalId: dto.external_id ?? null,
         profileId: profile.id,
         name: dto.name.trim(),
         schoolId: school.id,
@@ -310,10 +329,11 @@ export class IntegrationsController {
     return { created: true, participant: created };
   }
 
-  /** Snapshot peserta by external_id (verifikasi replikasi). */
-  @Get("participants/by-external/:externalId")
-  async getByExternal(@Param("externalId") externalId: string) {
-    const participant = await this.participants.findOneBy({ externalId });
+  /** Snapshot peserta by email (verifikasi replikasi). */
+  @Get("participants/by-email/:email")
+  async getByEmail(@Param("email") emailParam: string) {
+    const email = emailParam.trim().toLowerCase();
+    const participant = await this.participants.findOneBy({ email });
     if (!participant) throw new NotFoundException("Peserta tidak ditemukan.");
     const contents = await this.contents.findBy({
       participantId: participant.id,

@@ -113,7 +113,21 @@ export class AuthService {
     const school = user.schoolId
       ? await this.schools.findOneBy({ id: user.schoolId })
       : null;
+
+    // Voter yang email SSO-nya cocok peserta → dia "adalah peserta". Dipakai
+    // untuk label di UI + blok self-vote (dia tak bisa vote dirinya).
+    let selfParticipantId: string | null = null;
+    if (user.email) {
+      const rows = (await this.profiles.manager.query(
+        `select id from participants where lower(email) = lower($1) limit 1`,
+        [user.email],
+      )) as { id: string }[];
+      selfParticipantId = rows[0]?.id ?? null;
+    }
+
     return {
+      is_participant: !!selfParticipantId,
+      self_participant_id: selfParticipantId,
       school: school?.name ?? null,
       avatar_url: user.avatarUrl,
       id: user.id,

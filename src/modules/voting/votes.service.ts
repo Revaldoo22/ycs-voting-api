@@ -1,7 +1,13 @@
 import { ConflictException, Injectable } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
 import { DataSource, Repository } from "typeorm";
-import { Coupon, DailyVote, Participant, Profile } from "../../database/entities";
+import {
+  Coupon,
+  DailyVote,
+  Participant,
+  Profile,
+  School,
+} from "../../database/entities";
 import { SettingsService } from "../settings/settings.service";
 import { RoundsService } from "../rounds/rounds.service";
 import { AntiCheatService } from "./anti-cheat.service";
@@ -27,16 +33,60 @@ export class VotesService {
     private readonly rounds: RoundsService,
   ) {}
 
+  /**
+   * Identitas voter WAJIB dari akun login (SSO Google + wizard selesai).
+   * Menolak kalau belum login / belum onboarded / bukan voter. Field
+   * identitas (nama/WA/email/status/sekolah/kelas) diambil dari profil,
+   * bukan dari body — jadi tak bisa dipalsukan lewat API.
+   */
+  private async resolveVoter(actorId?: string) {
+    if (!actorId) throw new VoteError("LOGIN_REQUIRED");
+    const profile = await this.dataSource
+      .getRepository(Profile)
+      .findOneBy({ id: actorId });
+    if (!profile || profile.role !== "voter") {
+      throw new VoteError("LOGIN_REQUIRED");
+    }
+    if (!profile.onboarded || !profile.phoneNumber || !profile.email) {
+      throw new VoteError("ONBOARDING_REQUIRED");
+    }
+    const school = profile.schoolId
+      ? await this.dataSource
+          .getRepository(School)
+          .findOneBy({ id: profile.schoolId })
+      : null;
+    return {
+      profile,
+      phone: profile.phoneNumber.trim(),
+      email: profile.email.trim().toLowerCase(),
+      fields: {
+        name: profile.name ?? "",
+        phone_number: profile.phoneNumber,
+        email: profile.email,
+        status: (profile.voterStatus ?? "teman_luar") as string,
+        school: school?.name ?? undefined,
+        class: profile.voterClass ?? undefined,
+      },
+    };
+  }
+
   /** Port of cast_vote v3 (migration 0022) — same checks, same error codes. */
   async cast(
     d: CastVoteDto,
     serverHash: string | null,
     ipHash: string | null,
+    actorId?: string,
   ) {
     const kind = d.kind ?? "daily5";
     const points = kind === "fav20" ? 20 : 5;
-    const phone = d.phone_number.trim();
-    const email = d.email.trim().toLowerCase();
+
+    // Identitas voter WAJIB dari akun login (SSO + wizard), bukan dari body.
+    // Body hanya menyumbang participant_id, fingerprint, kind, follow proof.
+    const identity = await this.resolveVoter(actorId);
+    const phone = identity.phone;
+    const email = identity.email;
+    const name = identity.fields.name;
+    d = { ...d, ...identity.fields };
 
     if (!(await this.settings.isEventOpen())) throw new VoteError("EVENTCLOSED");
 
@@ -46,12 +96,13 @@ export class VotesService {
     });
     if (!participant) throw new VoteError("NOTFOUND");
 
-    // Self-vote block (participant's own WhatsApp number).
-    const pPhone = await this.antiCheat.participantPhone(d.participant_id);
-    if (pPhone !== null && pPhone === phone) throw new VoteError("SELFVOTE");
+    // Self-vote block: voter tak boleh vote peserta yang email/WA-nya = miliknya.
+    if (await this.antiCheat.isSelfVote(d.participant_id, email, phone)) {
+      throw new VoteError("SELFVOTE");
+    }
 
     // One WhatsApp number = one name.
-    if (await this.antiCheat.phoneNameConflict(phone, d.name)) {
+    if (await this.antiCheat.phoneNameConflict(phone, name)) {
       throw new VoteError("PHONE_NAME");
     }
 
@@ -92,11 +143,9 @@ export class VotesService {
       if (Number(cnt?.c ?? 0) >= limit) throw new VoteError("IPLIMIT");
     }
 
-    // Gate follow (harian): voter ber-akun wajib pernah konfirmasi follow
-    // akun Univ STEKOM - cukup SEKALI seumur event, lintas peserta.
-    const profile = await this.dataSource
-      .getRepository(Profile)
-      .findOneBy({ phoneNumber: phone, role: "voter" });
+    // Gate follow (harian): voter wajib pernah konfirmasi follow akun Univ
+    // STEKOM - cukup SEKALI seumur event, lintas peserta.
+    const profile = identity.profile;
     let grantCoupon = false;
     if (kind === "daily5" && profile && !profile.followedAt) {
       if (!d.follow_confirmed) throw new VoteError("FOLLOW_REQUIRED");
@@ -123,7 +172,7 @@ export class VotesService {
           ipHash,
           voteKind: kind,
           points,
-          voterName: d.name.trim(),
+          voterName: name.trim(),
           voterPhone: phone,
           voterEmail: email,
           voterStatus: d.status,
