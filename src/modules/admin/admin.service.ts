@@ -47,28 +47,74 @@ export class AdminService {
     return rows[0];
   }
 
-  voteSeries(days = 14) {
-    const clamped = Math.min(Math.max(days, 1), 90);
+  /**
+   * Rentang tanggal untuk chart. Prioritas: from/to eksplisit → lifetime
+   * (dari vote pertama) → N hari terakhir. Batas ≤ 400 hari agar chart wajar.
+   */
+  private async resolveRange(opts: {
+    from?: string;
+    to?: string;
+    days?: number;
+    lifetime?: boolean;
+  }): Promise<{ from: string; to: string }> {
+    const to = opts.to ?? new Date().toISOString().slice(0, 10);
+    if (opts.from) return { from: opts.from, to };
+    if (opts.lifetime) {
+      const r = await this.db.query(
+        `select to_char(min(vote_date), 'YYYY-MM-DD') as f from daily_votes`,
+      );
+      const from = r[0]?.f ?? to;
+      return { from, to };
+    }
+    const days = Math.min(Math.max(opts.days ?? 14, 1), 400);
+    const d = new Date(to);
+    d.setDate(d.getDate() - (days - 1));
+    return { from: d.toISOString().slice(0, 10), to };
+  }
+
+  private clampSpan(from: string, to: string): { from: string; to: string } {
+    // Cegah generate_series raksasa: maksimum 400 hari.
+    const f = new Date(from);
+    const t = new Date(to);
+    const span = Math.round((+t - +f) / 86400000);
+    if (span > 400) f.setTime(+t - 400 * 86400000);
+    return { from: f.toISOString().slice(0, 10), to };
+  }
+
+  async voteSeries(opts: {
+    from?: string;
+    to?: string;
+    days?: number;
+    lifetime?: boolean;
+  }) {
+    const rng = await this.resolveRange(opts);
+    const r = this.clampSpan(rng.from, rng.to);
     return this.db.query(
       `select to_char(d::date, 'YYYY-MM-DD') as day,
               coalesce((select count(*) from daily_votes dv
                         where dv.vote_date = d::date), 0)::int as votes
-       from generate_series(current_date - ($1::int - 1), current_date, interval '1 day') d
+       from generate_series($1::date, $2::date, interval '1 day') d
        order by d`,
-      [clamped],
+      [r.from, r.to],
     );
   }
 
-  voterGrowth(days = 14) {
-    const clamped = Math.min(Math.max(days, 1), 90);
+  async voterGrowth(opts: {
+    from?: string;
+    to?: string;
+    days?: number;
+    lifetime?: boolean;
+  }) {
+    const rng = await this.resolveRange(opts);
+    const r = this.clampSpan(rng.from, rng.to);
     return this.db.query(
       `select to_char(d::date, 'YYYY-MM-DD') as day,
               (select count(distinct voter_phone) from daily_votes
                where voter_phone is not null
                  and created_at::date <= d::date)::int as cumulative
-       from generate_series(current_date - ($1::int - 1), current_date, interval '1 day') d
+       from generate_series($1::date, $2::date, interval '1 day') d
        order by d`,
-      [clamped],
+      [r.from, r.to],
     );
   }
 

@@ -19,23 +19,17 @@ export class SchoolsService {
   /**
    * Hanya sekolah yang PUNYA peserta — inilah yang relevan dikelola admin.
    * Master 36rb+ sekolah (dari CSV) tak ditampilkan di sini; itu cuma
-   * referensi untuk wizard voter.
+   * referensi untuk wizard voter. Return snake_case agar konsisten dg API lain.
    */
   list() {
-    return this.schools
-      .createQueryBuilder("s")
-      .leftJoinAndMapOne("s.region", "regions", "r", "r.id = s.region_id")
-      .where((qb) => {
-        const sub = qb
-          .subQuery()
-          .select("1")
-          .from("participants", "p")
-          .where("p.school_id = s.id")
-          .getQuery();
-        return `exists ${sub}`;
-      })
-      .orderBy("s.name", "ASC")
-      .getMany();
+    return this.schools.manager.query(`
+      select s.id, s.name, s.npsn, s.jenjang, s.region_id, s.created_at,
+             case when r.id is null then null
+                  else json_build_object('id', r.id, 'name', r.name) end as region
+      from schools s
+      left join regions r on r.id = s.region_id
+      where exists (select 1 from participants p where p.school_id = s.id)
+      order by s.name asc`);
   }
 
   /** Pindahkan sekolah ke kabupaten (null = lepas). */

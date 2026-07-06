@@ -599,13 +599,15 @@ export class RoundsService {
   }
 
   /**
-   * Agregasi heatmap per kabupaten. Poin = jumlah total_points peserta
-   * aktif (vote + quest); votes = jumlah vote masuk.
+   * Agregasi heatmap per kabupaten. HANYA sekolah yang punya peserta yang
+   * dihitung (bukan master sekolah). Poin = jumlah total_points peserta aktif;
+   * votes = jumlah vote masuk. Kabupaten tanpa peserta tak muncul.
    */
   heatmap() {
     return this.db.query(
       `select rg.id as region_id, rg.name as region_name, rg.code,
-              count(distinct s.id)::int as schools,
+              prov.name as province_name, prov.code as province_code,
+              count(distinct p.school_id)::int as schools,
               count(distinct p.id)::int as participants,
               coalesce(sum(p.total_points), 0)::int as points,
               coalesce((
@@ -615,10 +617,11 @@ export class RoundsService {
                 where s2.region_id = rg.id
               ), 0)::int as votes
        from regions rg
-       left join schools s on s.region_id = rg.id
-       left join participants p on p.school_id = s.id and p.status = 'active'
+       left join regions prov on prov.id = rg.parent_id
+       join schools s on s.region_id = rg.id
+       join participants p on p.school_id = s.id and p.status = 'active'
        where rg.level = 'regency'
-       group by rg.id, rg.name, rg.code
+       group by rg.id, rg.name, rg.code, prov.name, prov.code
        order by points desc, rg.name`,
     );
   }
