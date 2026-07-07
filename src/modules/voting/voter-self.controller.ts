@@ -57,6 +57,10 @@ export class VoterSelfController {
                 ), 0) as points
          from schools s
          left join regions rg on rg.id = s.region_id
+         where exists (
+           select 1 from participants p
+           where p.school_id = s.id and p.status = 'active'
+         )
        ),
        ranked as (
          select *,

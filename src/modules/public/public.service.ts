@@ -10,8 +10,14 @@ import { DataSource } from "typeorm";
 export class PublicService {
   constructor(private readonly db: DataSource) {}
 
+  /** Hanya sekolah yang punya peserta (untuk dropdown/filter). Master 37rb+
+   *  hanya lewat searchSchools (wizard). */
   schools() {
-    return this.db.query(`select * from schools order by name`);
+    return this.db.query(
+      `select s.* from schools s
+       where exists (select 1 from participants p where p.school_id = s.id)
+       order by s.name`,
+    );
   }
 
   schoolsWithParticipants() {
