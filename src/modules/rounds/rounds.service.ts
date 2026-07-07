@@ -558,7 +558,11 @@ export class RoundsService {
                  where p.school_id = s.id and p.status = 'active')::int as participants
          from schools s
          left join regions rg on rg.id = s.region_id
-         where $1::uuid is null or s.region_id = $1
+         where ($1::uuid is null or s.region_id = $1)
+           and exists (
+             select 1 from participants p
+             where p.school_id = s.id and p.status = 'active'
+           )
        )
        select school_id, school_name, region_id, region_name, participants,
               points::int, rank() over (order by points desc)::int as rank
