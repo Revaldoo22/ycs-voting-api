@@ -184,19 +184,47 @@ export class AdminService {
         and ($3::date is null or s.created_at::date <= $3)
       group by s.voter_phone
     ),
-    combined as (
+    -- Voter yang sudah daftar (onboarded) — ikut walau belum vote/quest.
+    -- Hanya relevan saat TIDAK memfilter per peserta ($1 null).
+    prof as (
+      select pr.phone_number as voter_phone, pr.name as nm, pr.email as em,
+             pr.voter_status as st, sc.name as sch, pr.voter_class as cls,
+             pr.created_at as first_c, pr.created_at as last_c
+      from profiles pr
+      left join schools sc on sc.id = pr.school_id
+      where pr.role = 'voter' and pr.onboarded = true
+        and pr.phone_number is not null
+        and $1::uuid is null
+        and ($2::date is null or pr.created_at::date >= $2)
+        and ($3::date is null or pr.created_at::date <= $3)
+    ),
+    va as (
       select coalesce(v.voter_phone, q.voter_phone) as voter_phone,
-             coalesce(v.nm, q.nm, v.voter_phone, q.voter_phone) as voter_name,
-             coalesce(v.em, q.em) as voter_email,
-             coalesce(v.st, q.st) as voter_status,
-             coalesce(v.sch, q.sch) as voter_school,
-             coalesce(v.cls, q.cls) as voter_class,
+             coalesce(v.nm, q.nm) as nm,
+             coalesce(v.em, q.em) as em,
+             coalesce(v.st, q.st) as st,
+             coalesce(v.sch, q.sch) as sch,
+             coalesce(v.cls, q.cls) as cls,
              coalesce(v.votes, 0) as votes,
              coalesce(q.quests, 0) as quests,
              coalesce(v.pts, 0) + coalesce(q.pts, 0) as points,
-             least(v.first_c, q.first_c) as first_seen,
-             greatest(v.last_c, q.last_c) as last_seen
+             least(v.first_c, q.first_c) as first_c,
+             greatest(v.last_c, q.last_c) as last_c
       from v full outer join q on q.voter_phone = v.voter_phone
+    ),
+    combined as (
+      select coalesce(va.voter_phone, prof.voter_phone) as voter_phone,
+             coalesce(va.nm, prof.nm, va.voter_phone, prof.voter_phone) as voter_name,
+             coalesce(va.em, prof.em) as voter_email,
+             coalesce(va.st, prof.st) as voter_status,
+             coalesce(va.sch, prof.sch) as voter_school,
+             coalesce(va.cls, prof.cls) as voter_class,
+             coalesce(va.votes, 0) as votes,
+             coalesce(va.quests, 0) as quests,
+             coalesce(va.points, 0) as points,
+             coalesce(va.first_c, prof.first_c) as first_seen,
+             coalesce(va.last_c, prof.last_c) as last_seen
+      from va full outer join prof on prof.voter_phone = va.voter_phone
     ),
     enriched as (
       select c.*, rgn.name as region, pr.college_intent
