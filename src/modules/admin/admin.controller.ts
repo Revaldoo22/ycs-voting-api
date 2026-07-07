@@ -79,6 +79,14 @@ export class AdminController {
     });
   }
 
+  @Get("leads")
+  leads(
+    @Query("intent") intent?: string,
+    @Query("awareness") awareness?: string,
+  ) {
+    return this.admin.leads({ intent, awareness });
+  }
+
   @Get("pmb-insight")
   pmbInsight() {
     return this.admin.pmbInsight();

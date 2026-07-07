@@ -118,6 +118,29 @@ export class AdminService {
     );
   }
 
+  /**
+   * Leads PMB: semua voter yang sudah onboarding (profil + survey), untuk
+   * ditindaklanjuti tim PMB. Filter opsional niat kuliah & awareness.
+   */
+  async leads(f: { intent?: string; awareness?: string }) {
+    return this.db.query(
+      `select pr.name, pr.phone_number, pr.email,
+              sc.name as school_name, pr.voter_class, pr.voter_status,
+              reg.name as kabupaten, prov.name as provinsi,
+              pr.college_intent, pr.stekom_awareness, pr.stekom_source,
+              pr.created_at
+       from profiles pr
+       left join schools sc on sc.id = pr.school_id
+       left join regions reg on reg.id = pr.region_id
+       left join regions prov on prov.id = reg.parent_id
+       where pr.role = 'voter' and pr.onboarded = true
+         and ($1::text is null or pr.college_intent = $1)
+         and ($2::text is null or pr.stekom_awareness = $2)
+       order by pr.created_at desc`,
+      [f.intent || null, f.awareness || null],
+    );
+  }
+
   /** Insight PMB: niat kuliah + sebaran kabupaten voter ber-akun. */
   async pmbInsight() {
     const intent = await this.db.query(`
