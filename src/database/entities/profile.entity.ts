@@ -58,6 +58,15 @@ export class Profile {
   @Column({ name: "college_intent", type: "text", nullable: true })
   collegeIntent!: CollegeIntent | null;
 
+  // ---- Survey PMB (leads) --------------------------------------------
+  /** Awareness Universitas STEKOM: belum_tahu | pernah_dengar | sudah_minat. */
+  @Column({ name: "stekom_awareness", type: "text", nullable: true })
+  stekomAwareness!: string | null;
+
+  /** Sumber tahu STEKOM (diisi bila sudah tahu): mis. medsos, teman, iklan. */
+  @Column({ name: "stekom_source", type: "text", nullable: true })
+  stekomSource!: string | null;
+
   /** Waktu voter mengonfirmasi follow akun Univ STEKOM (sekali seumur event). */
   @Column({ name: "followed_at", type: "timestamptz", nullable: true })
   followedAt!: Date | null;

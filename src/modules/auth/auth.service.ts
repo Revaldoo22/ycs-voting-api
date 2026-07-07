@@ -256,6 +256,10 @@ export class AuthService {
     user.voterStatus = dto.status;
     user.regionId = regionId;
     user.collegeIntent = dto.college_intent;
+    if (dto.stekom_awareness !== undefined)
+      user.stekomAwareness = dto.stekom_awareness || null;
+    if (dto.stekom_source !== undefined)
+      user.stekomSource = dto.stekom_source?.trim() || null;
     user.onboarded = true;
     await this.profiles.save(user);
 

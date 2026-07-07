@@ -50,4 +50,15 @@ export class OnboardingDto {
 
   @IsIn(["ya", "tidak", "ragu"], { message: "Pilih niat kuliah" })
   college_intent!: "ya" | "tidak" | "ragu";
+
+  // ---- Survey PMB ----
+  @IsOptional()
+  @IsIn(["belum_tahu", "pernah_dengar", "sudah_minat"])
+  stekom_awareness?: string;
+
+  /** Sumber tahu STEKOM — diisi bila awareness = pernah_dengar / sudah_minat. */
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  stekom_source?: string;
 }
