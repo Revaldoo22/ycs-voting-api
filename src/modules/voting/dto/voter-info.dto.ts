@@ -9,7 +9,6 @@ import {
   IsUUID,
   IsUrl,
   MaxLength,
-  MinLength,
 } from "class-validator";
 
 /**
@@ -52,9 +51,10 @@ export class CastVoteDto extends VoterInfoDto {
   @IsUUID()
   participant_id!: string;
 
+  /** Tak dipakai lagi untuk anti-cheat (dedup murni by email/WA). Opsional. */
+  @IsOptional()
   @IsString()
-  @MinLength(1, { message: "Device tidak dikenali" })
-  fingerprint!: string;
+  fingerprint?: string;
 
   /** Voter menyatakan sudah follow akun Univ STEKOM (gate vote pertama). */
   @IsOptional()

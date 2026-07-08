@@ -120,12 +120,7 @@ export class VotesService {
    * bukan per peserta). Sekali vote sukses, akun itu tak bisa vote lagi ke
    * peserta manapun. Setiap vote menambah +1 poin ke peserta.
    */
-  async cast(
-    d: CastVoteDto,
-    serverHash: string | null,
-    ipHash: string | null,
-    actorId?: string,
-  ) {
+  async cast(d: CastVoteDto, actorId?: string) {
     const kind = "daily5";
     const points = 1;
 
@@ -166,17 +161,7 @@ export class VotesService {
       .getExists();
     if (dup) throw new VoteError("ALREADYVOTED");
 
-    // IP soft-limit (distinct emails per hashed IP per day).
-    if (ipHash) {
-      const limit = (await this.settings.get()).ipDailyLimit ?? 5;
-      const cnt = await this.votes
-        .createQueryBuilder("dv")
-        .select("COUNT(DISTINCT dv.voter_email)", "c")
-        .where("dv.ip_hash = :ipHash", { ipHash })
-        .andWhere("dv.vote_date = CURRENT_DATE")
-        .getRawOne<{ c: string }>();
-      if (Number(cnt?.c ?? 0) >= limit) throw new VoteError("IPLIMIT");
-    }
+    // Tidak ada batasan by device/IP — dedup murni by email/WA di atas.
 
     // Gate follow + kupon undian.
     //  - Voter biasa: wajib follow akun Univ STEKOM (sekali seumur event)
@@ -208,9 +193,7 @@ export class VotesService {
         await em.getRepository(DailyVote).insert({
           participantId: d.participant_id,
           roundId: activeRound?.id ?? null,
-          deviceFingerprint: d.fingerprint,
-          serverHash,
-          ipHash,
+          // device/server/ip tidak dipakai lagi untuk anti-cheat.
           voteKind: kind,
           points,
           voterName: name.trim(),

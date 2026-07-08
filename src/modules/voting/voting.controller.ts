@@ -3,15 +3,12 @@ import {
   Controller,
   HttpException,
   Post,
-  Req,
   UseGuards,
 } from "@nestjs/common";
-import { Request } from "express";
 import { VotesService, VoteError } from "./votes.service";
 import { SubmissionsService } from "./submissions.service";
 import { CastVoteDto, CreateSubmissionDto } from "./dto/voter-info.dto";
 import { rateLimit } from "../../common/utils/rate-limit";
-import { serverHashFromRequest } from "../../common/utils/server-hash";
 import { JwtGuard, JwtPayload } from "../../common/guards/jwt.guard";
 import { RolesGuard } from "../../common/guards/roles.guard";
 import { Roles } from "../../common/decorators/roles.decorator";
@@ -68,11 +65,7 @@ export class VotingController {
   @Post("vote")
   @UseGuards(JwtGuard, RolesGuard)
   @Roles("voter", "participant")
-  async vote(
-    @Body() dto: CastVoteDto,
-    @Req() req: Request,
-    @CurrentUser() user: JwtPayload,
-  ) {
+  async vote(@Body() dto: CastVoteDto, @CurrentUser() user: JwtPayload) {
     if (!rateLimit(`vote:${user.sub}`, 20, 60_000)) {
       throw new HttpException(
         { error: "Terlalu banyak percobaan. Coba lagi sebentar." },
@@ -80,14 +73,7 @@ export class VotingController {
       );
     }
     try {
-      const participant = await this.votes.cast(
-        dto,
-        serverHashFromRequest(req),
-        // IP soft-limit disabled for now (parity with the old app) — pass
-        // ipHashFromRequest(req) to re-enable.
-        null,
-        user.sub,
-      );
+      const participant = await this.votes.cast(dto, user.sub);
       return { ok: true, participant };
     } catch (err) {
       mapError(err);
