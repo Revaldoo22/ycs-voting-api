@@ -71,6 +71,7 @@ export class VotesService {
       if (part?.phone_number) {
         return {
           profile,
+          isParticipant: true,
           phone: part.phone_number.trim(),
           email: profile.email.trim().toLowerCase(),
           fields: {
@@ -93,8 +94,14 @@ export class VotesService {
           .getRepository(School)
           .findOneBy({ id: profile.schoolId })
       : null;
+    // Voter yang email-nya cocok record peserta = peserta juga → skip follow.
+    const asParticipant = (await this.dataSource.query(
+      `select 1 from participants where lower(email) = lower($1) limit 1`,
+      [profile.email],
+    )) as unknown[];
     return {
       profile,
+      isParticipant: asParticipant.length > 0,
       phone: profile.phoneNumber.trim(),
       email: profile.email.trim().toLowerCase(),
       fields: {
@@ -148,14 +155,14 @@ export class VotesService {
       throw new VoteError("PHONE_NAME");
     }
 
-    // 1 akun = 1 vote SEUMUR EVENT. Kalau email/WA/device ini sudah pernah
-    // vote (peserta manapun, kapanpun), tolak — tak ada reset harian.
+    // 1 akun = 1 vote SEUMUR EVENT, dikunci by email/WA (bukan device).
+    // Satu HP boleh dipakai beberapa akun berbeda.
     const dup = await this.votes
       .createQueryBuilder("dv")
-      .where(
-        "(dv.device_fingerprint = :fp OR dv.voter_phone = :phone OR dv.voter_email = :email)",
-        { fp: d.fingerprint, phone, email },
-      )
+      .where("(dv.voter_phone = :phone OR dv.voter_email = :email)", {
+        phone,
+        email,
+      })
       .getExists();
     if (dup) throw new VoteError("ALREADYVOTED");
 
@@ -171,15 +178,20 @@ export class VotesService {
       if (Number(cnt?.c ?? 0) >= limit) throw new VoteError("IPLIMIT");
     }
 
-    // Gate follow: voter wajib pernah konfirmasi follow akun Universitas
-    // STEKOM sebelum vote apa pun (daily5 & fav20) — cukup SEKALI seumur
-    // event, lintas peserta & lintas jenis.
+    // Gate follow + kupon undian.
+    //  - Voter biasa: wajib follow akun Univ STEKOM (sekali seumur event)
+    //    sebelum vote → dapat kupon.
+    //  - PESERTA YCS: vote langsung tanpa follow, TAPI tetap dapat kupon.
     const profile = identity.profile;
     let grantCoupon = false;
     if (profile && !profile.followedAt) {
-      if (!d.follow_confirmed) throw new VoteError("FOLLOW_REQUIRED");
-      if (!d.follow_proof_url) throw new VoteError("FOLLOW_PROOF_REQUIRED");
-      grantCoupon = true; // follow pertama + vote sukses = kupon undian
+      if (identity.isParticipant) {
+        grantCoupon = true; // peserta: kupon tanpa syarat follow
+      } else {
+        if (!d.follow_confirmed) throw new VoteError("FOLLOW_REQUIRED");
+        if (!d.follow_proof_url) throw new VoteError("FOLLOW_PROOF_REQUIRED");
+        grantCoupon = true; // follow pertama + vote sukses = kupon undian
+      }
     }
 
     // Stempel gelombang aktif (null bila tidak ada round berjalan).
@@ -212,7 +224,8 @@ export class VotesService {
           .getRepository(Participant)
           .increment({ id: d.participant_id }, "totalPoints", points);
 
-        // Follow terkonfirmasi: catat + terbitkan kupon undian (sekali).
+        // Terbitkan kupon undian (sekali). Voter: setelah follow. Peserta:
+        // langsung tanpa follow.
         if (grantCoupon && profile) {
           await em.getRepository(Profile).update(
             { id: profile.id },
@@ -230,7 +243,11 @@ export class VotesService {
             .getRepository(Coupon)
             .createQueryBuilder()
             .insert()
-            .values({ profileId: profile.id, code, source: "follow" })
+            .values({
+              profileId: profile.id,
+              code,
+              source: identity.isParticipant ? "peserta" : "follow",
+            })
             .orIgnore() // unique (profile, source): idempoten saat race
             .execute();
         }
