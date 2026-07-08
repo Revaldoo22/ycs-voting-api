@@ -329,19 +329,33 @@ export class IntegrationsController {
       if (byPhone) participant = byPhone;
     }
 
-    // Nomor WA tak boleh dipakai profil LAIN (selain peserta ini).
-    const phoneClash = await this.profiles.findOneBy({ phoneNumber: phone });
-    if (phoneClash && (!participant || phoneClash.id !== participant.profileId)) {
-      throw new ConflictException("Nomor WhatsApp sudah dipakai akun lain.");
-    }
-    // Email peserta tak boleh == email VOTER lain (bentrok identitas).
-    const emailClash = await this.profiles.findOneBy({ email });
+    // Profil VOTER dengan email sama → di-UPGRADE jadi peserta (bukan ditolak).
+    // Orang yang sudah daftar sebagai voter lalu mendaftarkan diri jadi peserta:
+    // akunnya sama, role naik voter → participant, dan dibuatkan record peserta
+    // yang menaut ke profil itu. Data vote/onboarding lamanya tetap.
+    const emailProfile = await this.profiles.findOneBy({ email });
     if (
-      emailClash &&
-      emailClash.role !== "participant" &&
-      (!participant || emailClash.id !== participant.profileId)
+      !participant &&
+      emailProfile &&
+      emailProfile.role === "voter"
     ) {
-      throw new ConflictException("Email sudah dipakai akun voter lain.");
+      emailProfile.role = "participant";
+      const existingPart = await this.participants.findOneBy({
+        profileId: emailProfile.id,
+      });
+      participant = existingPart ?? this.participants.create({
+        profileId: emailProfile.id,
+      });
+    }
+
+    // Nomor WA tak boleh dipakai profil LAIN (selain peserta/akun ini).
+    const phoneClash = await this.profiles.findOneBy({ phoneNumber: phone });
+    if (
+      phoneClash &&
+      phoneClash.id !== participant?.profileId &&
+      phoneClash.id !== emailProfile?.id
+    ) {
+      throw new ConflictException("Nomor WhatsApp sudah dipakai akun lain.");
     }
 
     if (participant) {
@@ -361,6 +375,8 @@ export class IntegrationsController {
             phoneNumber: phone,
             email,
             schoolId: school?.id ?? null,
+            // Pastikan profil (mis. voter yg di-upgrade) berperan peserta.
+            role: "participant",
           },
         );
       }
