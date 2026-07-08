@@ -474,7 +474,7 @@ export class RoundsService {
       );
     }
 
-    const POINTS = 5;
+    const POINTS = 1; // 1 vote = 1 poin (boost sintetis mengikuti aturan baru)
     await this.db.transaction(async (em) => {
       // Bagi N vote acak ke peserta (round-robin dari urutan yang di-shuffle
       // secara deterministik per index — cukup untuk sebaran boost).

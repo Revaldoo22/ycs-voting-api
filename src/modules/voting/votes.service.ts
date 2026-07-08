@@ -44,7 +44,8 @@ export class VotesService {
     const profile = await this.dataSource
       .getRepository(Profile)
       .findOneBy({ id: actorId });
-    if (!profile || profile.role !== "voter") {
+    // Voter maupun peserta (role "participant") boleh vote peserta lain.
+    if (!profile || (profile.role !== "voter" && profile.role !== "participant")) {
       throw new VoteError("LOGIN_REQUIRED");
     }
 
@@ -107,15 +108,19 @@ export class VotesService {
     };
   }
 
-  /** Port of cast_vote v3 (migration 0022) — same checks, same error codes. */
+  /**
+   * Cast vote. Aturan: 1 email/akun = 1 vote SEUMUR EVENT (bukan harian,
+   * bukan per peserta). Sekali vote sukses, akun itu tak bisa vote lagi ke
+   * peserta manapun. Setiap vote menambah +1 poin ke peserta.
+   */
   async cast(
     d: CastVoteDto,
     serverHash: string | null,
     ipHash: string | null,
     actorId?: string,
   ) {
-    const kind = d.kind ?? "daily5";
-    const points = kind === "fav20" ? 20 : 5;
+    const kind = "daily5";
+    const points = 1;
 
     // Identitas voter WAJIB dari akun login (SSO + wizard), bukan dari body.
     // Body hanya menyumbang participant_id, fingerprint, kind, follow proof.
@@ -143,32 +148,18 @@ export class VotesService {
       throw new VoteError("PHONE_NAME");
     }
 
-    // Already voted this participant today with this kind (device/phone/email)?
+    // 1 akun = 1 vote SEUMUR EVENT. Kalau email/WA/device ini sudah pernah
+    // vote (peserta manapun, kapanpun), tolak — tak ada reset harian.
     const dup = await this.votes
       .createQueryBuilder("dv")
-      .where("dv.participant_id = :pid", { pid: d.participant_id })
-      .andWhere("dv.vote_date = CURRENT_DATE")
-      .andWhere("dv.vote_kind = :kind", { kind })
-      .andWhere(
+      .where(
         "(dv.device_fingerprint = :fp OR dv.voter_phone = :phone OR dv.voter_email = :email)",
         { fp: d.fingerprint, phone, email },
       )
       .getExists();
     if (dup) throw new VoteError("ALREADYVOTED");
 
-    // fav20: max 10 distinct participants per voter (by phone) per day.
-    if (kind === "fav20") {
-      const used = await this.votes
-        .createQueryBuilder("dv")
-        .select("COUNT(DISTINCT dv.participant_id)", "c")
-        .where("dv.vote_kind = 'fav20'")
-        .andWhere("dv.vote_date = CURRENT_DATE")
-        .andWhere("dv.voter_phone = :phone", { phone })
-        .getRawOne<{ c: string }>();
-      if (Number(used?.c ?? 0) >= 10) throw new VoteError("FAV_LIMIT");
-    }
-
-    // IP soft-limit (cross-kind, distinct emails per hashed IP per day).
+    // IP soft-limit (distinct emails per hashed IP per day).
     if (ipHash) {
       const limit = (await this.settings.get()).ipDailyLimit ?? 5;
       const cnt = await this.votes

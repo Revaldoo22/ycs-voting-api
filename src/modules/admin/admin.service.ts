@@ -312,8 +312,7 @@ export class AdminService {
   pointLog(participantId: string) {
     return this.db.query(
       `select 'vote'::text as kind,
-              case when dv.vote_kind = 'fav20' then 'Vote Favorit (+20)'
-                   else 'Vote Harian (+5)' end as source,
+              'Vote (+' || dv.points || ')' as source,
               coalesce(dv.voter_name, dv.voter_phone) as voter_name,
               dv.voter_phone, dv.points, dv.created_at
        from daily_votes dv
@@ -334,12 +333,11 @@ export class AdminService {
     return this.voters({ participantId, limit: 1000, sort: "points_desc" });
   }
 
-  /** Unified activity feed: daily5/fav20 votes + quest submissions. */
+  /** Unified activity feed: votes + quest submissions. */
   private activityCte = `
     with acts as (
       select dv.vote_kind as kind,
-             case when dv.vote_kind = 'fav20' then 'Vote Favorit (+20)'
-                  else 'Vote Harian (+5)' end as source,
+             'Vote (+' || dv.points || ')' as source,
              coalesce(dv.voter_name, dv.voter_phone) as voter_name,
              dv.voter_phone, p.name as participant_name, dv.participant_id,
              dv.points, 'approved'::text as status, dv.created_at

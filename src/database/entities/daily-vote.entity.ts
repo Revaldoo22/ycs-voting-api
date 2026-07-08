@@ -6,12 +6,15 @@ import {
   PrimaryGeneratedColumn,
 } from "typeorm";
 
-export type VoteKind = "daily5" | "fav20";
+export type VoteKind = "daily5";
 
+// 1 akun = 1 vote SEUMUR EVENT. Unique index kini GLOBAL per identitas
+// (email/WA/device), bukan lagi per (peserta+tanggal+kind) — sekali satu
+// email/nomor/device dipakai vote, tak bisa dipakai vote lagi ke siapapun.
 @Entity("daily_votes")
-@Index("dv_uniq_device", ["participantId", "deviceFingerprint", "voteDate", "voteKind"], { unique: true })
-@Index("dv_uniq_phone", ["participantId", "voterPhone", "voteDate", "voteKind"], { unique: true })
-@Index("dv_uniq_email", ["participantId", "voterEmail", "voteDate", "voteKind"], { unique: true })
+@Index("dv_uniq_device", ["deviceFingerprint"], { unique: true })
+@Index("dv_uniq_phone", ["voterPhone"], { unique: true })
+@Index("dv_uniq_email", ["voterEmail"], { unique: true })
 export class DailyVote {
   @PrimaryGeneratedColumn("uuid")
   id!: string;
@@ -30,7 +33,7 @@ export class DailyVote {
   @Column({ name: "vote_kind", type: "text", default: "daily5" })
   voteKind!: VoteKind;
 
-  @Column({ type: "int", default: 5 })
+  @Column({ type: "int", default: 1 })
   points!: number;
 
   /** Vote sintetis yang dibuat admin (boost). Bisa di-rollback per gelombang. */

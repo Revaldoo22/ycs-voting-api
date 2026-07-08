@@ -3,7 +3,7 @@ import { DataSource } from "typeorm";
 import { JwtGuard, JwtPayload } from "../../common/guards/jwt.guard";
 import { CurrentUser } from "../../common/decorators/current-user.decorator";
 
-/** Riwayat hari ini untuk voter login: vote yang masuk + sisa kuota fav20. */
+/** Riwayat vote voter login. 1 akun = 1 vote seumur event. */
 @Controller("voter")
 @UseGuards(JwtGuard)
 export class VoterSelfController {
@@ -17,16 +17,12 @@ export class VoterSelfController {
        from daily_votes dv
        join participants p on p.id = dv.participant_id
        join profiles pr on pr.phone_number = dv.voter_phone
-       where pr.id = $1 and dv.vote_date = current_date
+       where pr.id = $1
        order by dv.created_at desc`,
       [user.sub],
     );
-    const favUsed = new Set(
-      rows
-        .filter((r: { vote_kind: string }) => r.vote_kind === "fav20")
-        .map((r: { participant_id: string }) => r.participant_id),
-    ).size;
-    return { votes: rows, fav_quota: { used: favUsed, max: 10 } };
+    // 1 akun = 1 vote seumur event: has_voted true kalau sudah pernah vote.
+    return { votes: rows, has_voted: rows.length > 0 };
   }
 
   /** Kupon undian milik voter (dari follow). */

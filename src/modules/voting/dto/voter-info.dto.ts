@@ -56,10 +56,6 @@ export class CastVoteDto extends VoterInfoDto {
   @MinLength(1, { message: "Device tidak dikenali" })
   fingerprint!: string;
 
-  @IsOptional()
-  @IsIn(["daily5", "fav20"])
-  kind?: "daily5" | "fav20";
-
   /** Voter menyatakan sudah follow akun Univ STEKOM (gate vote pertama). */
   @IsOptional()
   follow_confirmed?: boolean;

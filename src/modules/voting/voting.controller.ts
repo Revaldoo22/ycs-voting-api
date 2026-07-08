@@ -29,10 +29,9 @@ const MESSAGES: Record<string, [string, number]> = {
     "Nomor WhatsApp ini sudah terdaftar dengan nama lain. Gunakan nama yang sama.",
     409,
   ],
-  ALREADYVOTED: ["Kamu sudah vote peserta ini hari ini.", 409],
+  ALREADYVOTED: ["Kamu sudah menggunakan hak vote-mu. Satu akun hanya bisa vote sekali.", 409],
   FOLLOW_REQUIRED: ["Follow akun Universitas STEKOM dulu untuk vote pertamamu.", 409],
   FOLLOW_PROOF_REQUIRED: ["Upload screenshot bukti follow dulu.", 400],
-  FAV_LIMIT: ["Kuota vote favorit harianmu sudah habis (maks 10 peserta).", 409],
   IPLIMIT: ["Batas vote harian dari jaringan ini tercapai.", 409],
   MISSINGDATA: ["Data tidak lengkap.", 400],
   TOOMANY: ["Maksimal 5 bukti per pengiriman.", 400],
@@ -68,7 +67,7 @@ export class VotingController {
   /** POST /api/vote — WAJIB login voter (SSO + wizard). Identitas dari sesi. */
   @Post("vote")
   @UseGuards(JwtGuard, RolesGuard)
-  @Roles("voter")
+  @Roles("voter", "participant")
   async vote(
     @Body() dto: CastVoteDto,
     @Req() req: Request,
@@ -98,7 +97,7 @@ export class VotingController {
   /** POST /api/submissions — WAJIB login voter. Identitas dari sesi. */
   @Post("submissions")
   @UseGuards(JwtGuard, RolesGuard)
-  @Roles("voter")
+  @Roles("voter", "participant")
   async submit(
     @Body() dto: CreateSubmissionDto,
     @CurrentUser() user: JwtPayload,
