@@ -47,6 +47,43 @@ export class VotesService {
     if (!profile || profile.role !== "voter") {
       throw new VoteError("LOGIN_REQUIRED");
     }
+
+    // Peserta (email akun cocok record peserta) boleh vote peserta lain TANPA
+    // onboarding — identitas WA/nama/sekolah diambil dari record peserta itu,
+    // status "peserta". Kunci: email (SSO Google). Backend = sumber kebenaran.
+    if (!profile.onboarded && profile.email) {
+      const rows = (await this.dataSource.query(
+        `select p.name, p.school_id, pr.phone_number, s.name as school_name
+           from participants p
+           join profiles pr on pr.id = p.profile_id
+           left join schools s on s.id = p.school_id
+          where lower(p.email) = lower($1)
+          limit 1`,
+        [profile.email],
+      )) as {
+        name: string;
+        school_id: string | null;
+        phone_number: string | null;
+        school_name: string | null;
+      }[];
+      const part = rows[0];
+      if (part?.phone_number) {
+        return {
+          profile,
+          phone: part.phone_number.trim(),
+          email: profile.email.trim().toLowerCase(),
+          fields: {
+            name: part.name ?? profile.name ?? "",
+            phone_number: part.phone_number,
+            email: profile.email,
+            status: "peserta",
+            school: part.school_name ?? undefined,
+            class: undefined,
+          },
+        };
+      }
+    }
+
     if (!profile.onboarded || !profile.phoneNumber || !profile.email) {
       throw new VoteError("ONBOARDING_REQUIRED");
     }
@@ -143,11 +180,12 @@ export class VotesService {
       if (Number(cnt?.c ?? 0) >= limit) throw new VoteError("IPLIMIT");
     }
 
-    // Gate follow (harian): voter wajib pernah konfirmasi follow akun Univ
-    // STEKOM - cukup SEKALI seumur event, lintas peserta.
+    // Gate follow: voter wajib pernah konfirmasi follow akun Universitas
+    // STEKOM sebelum vote apa pun (daily5 & fav20) — cukup SEKALI seumur
+    // event, lintas peserta & lintas jenis.
     const profile = identity.profile;
     let grantCoupon = false;
-    if (kind === "daily5" && profile && !profile.followedAt) {
+    if (profile && !profile.followedAt) {
       if (!d.follow_confirmed) throw new VoteError("FOLLOW_REQUIRED");
       if (!d.follow_proof_url) throw new VoteError("FOLLOW_PROOF_REQUIRED");
       grantCoupon = true; // follow pertama + vote sukses = kupon undian

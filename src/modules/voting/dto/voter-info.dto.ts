@@ -34,7 +34,7 @@ export class VoterInfoDto {
   email?: string;
 
   @IsOptional()
-  @IsIn(["teman_sekolah", "guru", "keluarga", "teman_luar"])
+  @IsIn(["teman_sekolah", "guru", "keluarga", "teman_luar", "peserta"])
   status?: string;
 
   @IsOptional()

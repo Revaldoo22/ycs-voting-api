@@ -8,6 +8,7 @@ import {
   Patch,
   Post,
   Put,
+  Query,
   UseGuards,
 } from "@nestjs/common";
 import {
@@ -149,14 +150,13 @@ class SyncParticipantDto {
   @Matches(/^[0-9+\-\s().]+$/)
   phone_number!: string;
 
-  /** NPSN sekolah (dari data master). Kalau cocok, kabupaten/provinsi otomatis
-   *  ikut — tak perlu region_code. Paling direkomendasikan. */
-  @IsOptional()
-  @IsString()
-  @MaxLength(20)
-  npsn?: string;
+  /** NPSN sekolah (dari data master) — WAJIB. Dari NPSN, kabupaten & provinsi
+   *  otomatis terisi (tak perlu region_code). 8 digit angka. */
+  @IsString({ message: "npsn wajib diisi." })
+  @Matches(/^\d{8}$/, { message: "npsn harus 8 digit angka." })
+  npsn!: string;
 
-  /** Nama sekolah — dipakai kalau npsn tak dikirim/tak cocok (find-or-create). */
+  /** Nama sekolah — cadangan tampilan bila NPSN belum ada di master. */
   @IsOptional()
   @IsString()
   @MinLength(2)
@@ -258,22 +258,44 @@ export class IntegrationsController {
     name?: string;
     regionCode?: string;
   }) {
-    // 1. by NPSN — sekolah master, region sudah ikut.
-    if (opts.npsn?.trim()) {
+    // 1. by NPSN — sekolah master, region sudah ikut. NPSN dinormalisasi
+    // (buang non-digit) agar spasi/format kecil tak bikin gagal cocok.
+    const npsn = (opts.npsn ?? "").replace(/\D/g, "");
+    if (npsn) {
       const master = await this.db
         .getRepository(School)
-        .findOneBy({ npsn: opts.npsn.trim() });
+        .findOneBy({ npsn });
       if (master) return master;
     }
-    // 2. by nama (find-or-create) + petakan region opsional.
+    // 2. by nama (find-or-create) + petakan region.
     const name = (opts.name ?? "").trim();
     if (!name) return null;
     const school = await this.schools.createOrGet({ name });
-    if (opts.regionCode && !school.regionId) {
-      const region = await this.regions.findOneBy({ code: opts.regionCode });
-      if (region) {
-        school.regionId = region.id;
-        await this.db.getRepository("schools").save(school);
+
+    // Jaring pengaman region kalau sekolah (baru/lama) belum punya region:
+    if (!school.regionId) {
+      let regionId: string | null = null;
+      // a. dari regionCode (kode BPS) bila dikirim.
+      if (opts.regionCode) {
+        const region = await this.regions.findOneBy({ code: opts.regionCode });
+        regionId = region?.id ?? null;
+      }
+      // b. warisi region dari sekolah master yang namanya cocok (NPSN salah/
+      //    kosong tapi nama ada di master) — supaya kabupaten tetap terisi.
+      if (!regionId) {
+        const rows = (await this.db.query(
+          `select region_id from schools
+             where npsn is not null and region_id is not null
+               and upper(regexp_replace(name, '\\s+', ' ', 'g'))
+                 = upper(regexp_replace($1, '\\s+', ' ', 'g'))
+             limit 1`,
+          [name],
+        )) as { region_id: string }[];
+        regionId = rows[0]?.region_id ?? null;
+      }
+      if (regionId) {
+        school.regionId = regionId;
+        await this.db.getRepository(School).save(school);
       }
     }
     return school;
@@ -289,11 +311,16 @@ export class IntegrationsController {
   async syncParticipant(@Body() dto: SyncParticipantDto) {
     const phone = normalizePhone(dto.phone_number);
     const email = dto.email.trim().toLowerCase();
-    const school = await this.resolveSchool({
-      npsn: dto.npsn,
-      name: dto.school_name,
-      regionCode: dto.region_code,
-    });
+
+    // NPSN wajib cocok sekolah master → kabupaten/provinsi dijamin terisi.
+    const npsn = dto.npsn.replace(/\D/g, "");
+    const master = await this.db.getRepository(School).findOneBy({ npsn });
+    if (!master) {
+      throw new ConflictException(
+        `NPSN ${dto.npsn} tidak ditemukan di data master sekolah.`,
+      );
+    }
+    const school = master;
 
     // Kunci: email peserta. Adopsi peserta lama by nomor kalau email belum ada.
     let participant = await this.participants.findOneBy({ email });
@@ -372,7 +399,212 @@ export class IntegrationsController {
     const contents = await this.contents.findBy({
       participantId: participant.id,
     });
-    return { participant, contents };
+    // Sertakan ringkasan (id link, stats voter/poin, peringkat) — sama seperti
+    // by-name, tapi email jadi kunci yang unik & tak ambigu.
+    const summary = await this.participantSummary(participant.id);
+    return { ...summary, participant, contents };
+  }
+
+  /**
+   * Cari peserta by nama (untuk web kedua bikin link view voting).
+   * Return id (untuk /peserta/{id}), stats akun (voter unik + total poin),
+   * dan peringkat di sekolah / kabupaten / nasional.
+   * Cocokkan case-insensitive; kalau nama ganda → 409 (pakai email/id lain).
+   */
+  @Get("participants/by-name/:name")
+  async getByName(@Param("name") nameParam: string) {
+    const name = nameParam.trim();
+    if (name.length < 2)
+      throw new NotFoundException("Nama terlalu pendek.");
+    const matches = await this.participants
+      .createQueryBuilder("p")
+      .where("lower(p.name) = lower(:name)", { name })
+      .getMany();
+    if (matches.length === 0)
+      throw new NotFoundException("Peserta tidak ditemukan.");
+    if (matches.length > 1)
+      throw new ConflictException(
+        "Nama ini terdaftar lebih dari satu peserta. Gunakan endpoint by-email.",
+      );
+    return this.participantSummary(matches[0].id);
+  }
+
+  /** Ringkasan + peringkat satu peserta by id. Dipakai getByName. */
+  private async participantSummary(participantId: string) {
+    // Stats voter unik (distinct nomor WA) untuk peserta ini.
+    const stats = (
+      (await this.db.query(
+        `select count(distinct voter_phone)::int as voters,
+                count(*)::int as votes
+           from daily_votes where participant_id = $1`,
+        [participantId],
+      )) as { voters: number; votes: number }[]
+    )[0] ?? { voters: 0, votes: 0 };
+
+    // Peringkat: rank by total_points DESC (id sebagai tiebreak deterministik)
+    // di tiga lingkup — nasional, kabupaten (region sekolah), sekolah.
+    const rank = (
+      (await this.db.query(
+        `with ranked as (
+           select p.id, p.name, p.total_points, p.school_id, s.region_id,
+             rank() over (order by p.total_points desc, p.id)::int as nat,
+             rank() over (
+               partition by s.region_id order by p.total_points desc, p.id
+             )::int as reg,
+             rank() over (
+               partition by p.school_id order by p.total_points desc, p.id
+             )::int as sch
+           from participants p
+           left join schools s on s.id = p.school_id
+           where p.status = 'active'
+         ),
+         counts as (
+           select
+             (select count(*) from ranked)::int as nat_total,
+             (select count(*) from ranked r2 where r2.region_id
+                = (select region_id from ranked where id = $1))::int as reg_total,
+             (select count(*) from ranked r3 where r3.school_id
+                = (select school_id from ranked where id = $1))::int as sch_total
+         )
+         select r.name, r.total_points, r.school_id, r.region_id,
+                r.nat, r.reg, r.sch,
+                c.nat_total, c.reg_total, c.sch_total
+           from ranked r, counts c
+          where r.id = $1`,
+        [participantId],
+      )) as {
+        name: string;
+        total_points: number;
+        school_id: string | null;
+        region_id: string | null;
+        nat: number;
+        reg: number;
+        sch: number;
+        nat_total: number;
+        reg_total: number;
+        sch_total: number;
+      }[]
+    )[0];
+
+    if (!rank) throw new NotFoundException("Peserta tidak ditemukan.");
+
+    // Nama sekolah & kabupaten untuk label di web kedua.
+    const loc = (
+      (await this.db.query(
+        `select s.name as school_name, r.name as regency_name
+           from schools s
+           left join regions r on r.id = s.region_id
+          where s.id = $1`,
+        [rank.school_id],
+      )) as { school_name: string; regency_name: string | null }[]
+    )[0];
+
+    return {
+      id: participantId,
+      name: rank.name,
+      view_url: `https://idola.stekom.ac.id/peserta/${participantId}`,
+      school_name: loc?.school_name ?? null,
+      regency_name: loc?.regency_name ?? null,
+      stats: {
+        total_points: rank.total_points,
+        voters: stats.voters,
+        votes: stats.votes,
+      },
+      rank: {
+        school: rank.school_id
+          ? { position: rank.sch, total: rank.sch_total }
+          : null,
+        regency: rank.region_id
+          ? { position: rank.reg, total: rank.reg_total }
+          : null,
+        national: { position: rank.nat, total: rank.nat_total },
+      },
+    };
+  }
+
+  // ── Leaderboard (untuk ditampilkan di web pendaftaran) ──────────────
+  private clampLimit(raw?: string) {
+    const n = Number(raw ?? 50);
+    return Number.isFinite(n) ? Math.min(Math.max(Math.trunc(n), 1), 200) : 50;
+  }
+
+  /** Peringkat peserta by total poin (nasional). */
+  @Get("leaderboard/participants")
+  async leaderboardParticipants(@Query("limit") limit?: string) {
+    const rows = (await this.db.query(
+      `select
+         row_number() over (order by p.total_points desc, p.id)::int as position,
+         p.id, p.name, p.total_points::int as total_points,
+         s.name as school_name, r.name as regency_name,
+         (select count(distinct voter_phone) from daily_votes dv
+            where dv.participant_id = p.id)::int as voters
+       from participants p
+       left join schools s on s.id = p.school_id
+       left join regions r on r.id = s.region_id
+       where p.status = 'active'
+       order by p.total_points desc, p.id
+       limit $1`,
+      [this.clampLimit(limit)],
+    )) as unknown[];
+    return { count: rows.length, leaderboard: rows };
+  }
+
+  /** Peringkat sekolah by akumulasi poin peserta-pesertanya. */
+  @Get("leaderboard/schools")
+  async leaderboardSchools(@Query("limit") limit?: string) {
+    const rows = (await this.db.query(
+      `with agg as (
+         select s.id, s.name, r.name as regency_name,
+                count(p.id)::int as participants,
+                coalesce(sum(p.total_points), 0)::int as total_points
+         from schools s
+         join participants p on p.school_id = s.id and p.status = 'active'
+         left join regions r on r.id = s.region_id
+         group by s.id, s.name, r.name
+       )
+       select row_number() over (order by total_points desc, name)::int as position,
+              id, name as school_name, regency_name, participants, total_points
+       from agg
+       order by total_points desc, name
+       limit $1`,
+      [this.clampLimit(limit)],
+    )) as unknown[];
+    return { count: rows.length, leaderboard: rows };
+  }
+
+  /** Peringkat voter/pendukung by skor (vote + quest). */
+  @Get("leaderboard/voters")
+  async leaderboardVoters(@Query("limit") limit?: string) {
+    const rows = (await this.db.query(
+      `with v as (
+         select voter_phone, max(voter_name) as nm, max(voter_school) as school,
+                count(*) as votes, coalesce(sum(points), 0) as pts
+         from daily_votes where voter_phone is not null group by voter_phone
+       ),
+       q as (
+         select s.voter_phone, max(s.voter_name) as nm,
+                count(*) as quests, coalesce(sum(qu.point), 0) as quest_points
+         from submissions s join quests qu on qu.id = s.quest_id
+         where s.status = 'approved' and s.voter_phone is not null
+         group by s.voter_phone
+       ),
+       merged as (
+         select coalesce(v.nm, q.nm, v.voter_phone, q.voter_phone) as voter_name,
+                coalesce(v.school, '') as school_name,
+                coalesce(v.votes, 0)::int as votes,
+                coalesce(q.quests, 0)::int as quests,
+                (coalesce(v.pts, 0) + coalesce(q.quest_points, 0))::int as score
+         from v full outer join q on q.voter_phone = v.voter_phone
+       )
+       select row_number() over (order by score desc)::int as position,
+              voter_name, school_name, votes, quests, score
+       from merged
+       where votes > 0 or quests > 0
+       order by score desc
+       limit $1`,
+      [this.clampLimit(limit)],
+    )) as unknown[];
+    return { count: rows.length, leaderboard: rows };
   }
 
   /** Upsert peserta by nomor WA (dipertahankan; kunci = nomor). */

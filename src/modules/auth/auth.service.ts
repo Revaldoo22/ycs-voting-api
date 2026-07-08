@@ -118,14 +118,29 @@ export class AuthService {
 
     // Voter yang email SSO-nya cocok peserta → dia "adalah peserta". Dipakai
     // untuk label di UI + blok self-vote (dia tak bisa vote dirinya).
+    // Sekolah & daerah untuk filter halaman vote (sekolahku/kabupatenku)
+    // DIAMBIL dari record peserta ini, bukan dari isian onboarding — supaya
+    // "teman sekolahku" akurat berdasar data peserta resmi.
     let selfParticipantId: string | null = null;
+    let selfSchoolId: string | null = null;
+    let selfRegionId: string | null = null;
     if (user.email) {
       const rows = (await this.profiles.manager.query(
-        `select id from participants where lower(email) = lower($1) limit 1`,
+        `select p.id, p.school_id, s.region_id
+           from participants p
+           left join schools s on s.id = p.school_id
+          where lower(p.email) = lower($1)
+          limit 1`,
         [user.email],
-      )) as { id: string }[];
+      )) as { id: string; school_id: string | null; region_id: string | null }[];
       selfParticipantId = rows[0]?.id ?? null;
+      selfSchoolId = rows[0]?.school_id ?? null;
+      selfRegionId = rows[0]?.region_id ?? null;
     }
+
+    // Basis filter: pakai sekolah/daerah peserta jika cocok, jatuh ke onboarding.
+    const filterSchoolId = selfSchoolId ?? user.schoolId;
+    const filterRegionId = selfRegionId ?? user.regionId;
 
     return {
       is_participant: !!selfParticipantId,
@@ -137,14 +152,14 @@ export class AuthService {
       email: user.email,
       phone_number: user.phoneNumber,
       role: user.role,
-      school_id: user.schoolId,
+      school_id: filterSchoolId,
       class: user.voterClass,
       status: user.voterStatus,
-      region_id: user.regionId,
-      region: user.regionId
+      region_id: filterRegionId,
+      region: filterRegionId
         ? ((await this.profiles.manager.query(
             `select name from regions where id = $1`,
-            [user.regionId],
+            [filterRegionId],
           )) as { name: string }[])[0]?.name ?? null
         : null,
       college_intent: user.collegeIntent,

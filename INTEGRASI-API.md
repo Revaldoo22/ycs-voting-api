@@ -55,20 +55,20 @@ Body:
 | `email` | ✅ | **kunci sync** + dasar pencocokan voter |
 | `name` | ✅ | 2–100 |
 | `phone_number` | ✅ | 8–20 digit |
-| `npsn` | — | **paling disarankan** — NPSN sekolah dari data master. Kalau cocok, **kabupaten & provinsi otomatis terisi** (tak perlu region_code). |
-| `school_name` | — | dipakai kalau `npsn` tak dikirim/tak cocok (sekolah dibuat by nama) |
-| `region_code` | — | kode BPS kabupaten — hanya perlu kalau pakai `school_name` & ingin memetakan kabupaten |
+| `npsn` | ✅ | **NPSN sekolah dari data master — WAJIB, 8 digit angka.** Kabupaten & provinsi otomatis terisi dari NPSN. NPSN yang tak ada di master → `409`. |
+| `school_name` | — | opsional, cadangan tampilan saja (wilayah tetap dari NPSN) |
+| `region_code` | — | tidak perlu — wilayah sudah dari NPSN |
 | `external_id` | — | ID kalian (disimpan, opsional) |
 | `description` / `photo_url` / `status` | — | opsional |
 
-> **Cukup kirim `npsn`.** Sistem sudah punya master 36rb+ sekolah beserta
-> kabupaten & provinsinya (kode BPS). Dari NPSN, wilayah langsung diketahui —
-> kalian tak perlu kirim `region_code` maupun nama sekolah. Kirim `school_name`
-> hanya kalau sekolah tak ada di master (mis. sekolah baru).
+> **`npsn` wajib** (8 digit angka). Sistem punya master 36rb+ sekolah beserta
+> kabupaten & provinsinya (kode BPS). Dari NPSN, wilayah langsung terisi —
+> tak perlu `region_code` maupun `school_name`. NPSN yang tidak ada di master
+> ditolak (`409`) supaya kabupaten peserta dijamin akurat.
 
 Respon: `{ "created": true|false, "participant": { ... } }`
 
-Verifikasi: **GET** `/participants/by-email/{email}`.
+Verifikasi + ambil link/statistik/peringkat: **GET** `/participants/by-email/{email}` (lihat bagian 3).
 
 > Ganti nama, nomor WA, sekolah, foto, status — semua cukup lewat endpoint ini
 > (kirim ulang dengan `email` sama). Nomor/email dicek unik → `409` bila bentrok.
@@ -105,7 +105,84 @@ Respon: `{ "ok": true, "count": 2 }`
 
 ---
 
-## 3. Sekolah & Kabupaten (opsional)
+## 3. Link Voting + Statistik & Peringkat Peserta
+
+Buat **link "lihat halaman voting"** di web kalian, sekalian ambil statistik
+akun peserta (jumlah voter, poin, peringkat).
+
+**GET** `/participants/by-email/{email}` ← **disarankan** (email unik, tak ambigu)
+
+**GET** `/participants/by-name/{name}` ← lookup cepat by nama (URL-encode spasi).
+Kalau nama terdaftar di lebih dari satu peserta → `409` (pakai by-email).
+
+Respon (dua-duanya struktur sama; by-email menambah `participant` + `contents`):
+
+```json
+{
+  "id": "03db696e-4c7f-4013-8b89-3a40641142b2",
+  "name": "Oka Pratama",
+  "view_url": "https://idola.stekom.ac.id/peserta/03db696e-4c7f-4013-8b89-3a40641142b2",
+  "school_name": "SMA Negeri 3 Semarang",
+  "regency_name": "Kota Semarang",
+  "stats": { "total_points": 885, "voters": 99, "votes": 114 },
+  "rank": {
+    "school":   { "position": 1, "total": 1 },
+    "regency":  { "position": 2, "total": 20 },
+    "national": { "position": 2, "total": 202 }
+  }
+}
+```
+
+| Field | Keterangan |
+|-------|-----------|
+| `id` | ID peserta di sistem ini — dipakai untuk link |
+| `view_url` | URL siap-pakai halaman voting peserta (`https://idola.stekom.ac.id/peserta/{id}`) |
+| `school_name` / `regency_name` | nama sekolah & kabupaten/kota (label) |
+| `stats.total_points` | total poin peserta |
+| `stats.voters` | jumlah **voter unik** (nomor WA berbeda) yang mendukung |
+| `stats.votes` | total vote masuk (semua jenis) |
+| `rank.school` / `rank.regency` / `rank.national` | peringkat `position` dari total peserta `total` di lingkup sekolah / kabupaten / nasional. `null` bila peserta belum punya sekolah/kabupaten. |
+
+> Peringkat diurut dari poin tertinggi. Angka semuanya bertipe number.
+
+---
+
+## 4. Leaderboard (papan peringkat)
+
+Untuk ditampilkan di web pendaftaran. Semua menerima query `?limit=` (default
+50, maks 200). Respon: `{ "count": N, "leaderboard": [ ... ] }` — sudah terurut,
+tiap item punya `position`.
+
+**GET** `/leaderboard/participants` — peringkat peserta by total poin (nasional).
+
+```json
+{ "position": 1, "id": "…", "name": "Dimas Rahayu", "total_points": 1345,
+  "school_name": "SMA Negeri 1 Semarang", "regency_name": "Kota Semarang", "voters": 147 }
+```
+
+**GET** `/leaderboard/schools` — peringkat sekolah by akumulasi poin pesertanya.
+
+```json
+{ "position": 1, "id": "…", "school_name": "SMA Negeri 1 Semarang",
+  "regency_name": "Kota Semarang", "participants": 12, "total_points": 4820 }
+```
+
+**GET** `/leaderboard/voters` — peringkat voter/pendukung by skor (vote + quest).
+
+```json
+{ "position": 1, "voter_name": "Zahra Utami", "school_name": "",
+  "votes": 23, "quests": 0, "score": 235 }
+```
+
+```bash
+curl "$BASE/leaderboard/participants?limit=10" -H "X-Api-Key: $KEY"
+curl "$BASE/leaderboard/schools?limit=10"      -H "X-Api-Key: $KEY"
+curl "$BASE/leaderboard/voters?limit=10"       -H "X-Api-Key: $KEY"
+```
+
+---
+
+## 5. Sekolah & Kabupaten (opsional)
 
 Biasanya **tak perlu** — cukup kirim `npsn` di sync peserta. Endpoint ini hanya
 kalau kalian mengelola sekolah/wilayah secara terpisah.
@@ -141,8 +218,11 @@ curl -X PUT $BASE/participants/by-email/budi@sekolah.sch.id/contents \
   -H "X-Api-Key: $KEY" -H "Content-Type: application/json" \
   -d '{"contents":[{"kind":"engage","url":"https://instagram.com/p/x","label":"Reels"}]}'
 
-# Verifikasi peserta
+# Verifikasi peserta + ambil link/statistik/peringkat
 curl $BASE/participants/by-email/budi@sekolah.sch.id -H "X-Api-Key: $KEY"
+
+# Lookup cepat by nama (spasi di-encode %20)
+curl "$BASE/participants/by-name/Budi%20Santoso" -H "X-Api-Key: $KEY"
 
 # Daftar kabupaten
 curl $BASE/regions -H "X-Api-Key: $KEY"
