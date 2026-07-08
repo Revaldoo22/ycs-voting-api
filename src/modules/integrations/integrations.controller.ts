@@ -623,6 +623,33 @@ export class IntegrationsController {
     return { count: rows.length, leaderboard: rows };
   }
 
+  /**
+   * Kupon undian milik akun (voter/peserta) by email.
+   * Return daftar kupon + status menang (kalau ada).
+   */
+  @Get("coupons/by-email/:email")
+  async couponsByEmail(@Param("email") emailParam: string) {
+    const email = emailParam.trim().toLowerCase();
+    const profile = await this.profiles.findOneBy({ email });
+    if (!profile) throw new NotFoundException("Akun tidak ditemukan.");
+    const coupons = (await this.db.query(
+      `select code, source, prize,
+              to_char(created_at, 'YYYY-MM-DD"T"HH24:MI:SSOF') as created_at,
+              (won_at is not null) as won,
+              to_char(won_at, 'YYYY-MM-DD"T"HH24:MI:SSOF') as won_at
+         from coupons
+        where profile_id = $1
+        order by created_at desc`,
+      [profile.id],
+    )) as unknown[];
+    return {
+      email,
+      name: profile.name,
+      count: coupons.length,
+      coupons,
+    };
+  }
+
   /** Upsert peserta by nomor WA (dipertahankan; kunci = nomor). */
   @Post("participants")
   async upsert(@Body() dto: UpsertParticipantDto) {

@@ -182,7 +182,38 @@ curl "$BASE/leaderboard/voters?limit=10"       -H "X-Api-Key: $KEY"
 
 ---
 
-## 5. Sekolah & Kabupaten (opsional)
+## 5. Kupon Undian (by email)
+
+**GET** `/coupons/by-email/{email}` — daftar kupon undian (hadiah HP) milik akun.
+
+```json
+{
+  "email": "budi@sekolah.sch.id",
+  "name": "Budi Santoso",
+  "count": 1,
+  "coupons": [
+    { "code": "YCS-1472-9E10", "source": "follow", "prize": null,
+      "created_at": "2026-07-03T23:18:35+07", "won": false, "won_at": null }
+  ]
+}
+```
+
+| Field | Keterangan |
+|-------|-----------|
+| `code` | kode kupon unik |
+| `source` | asal kupon (mis. `follow`) |
+| `won` | `true` bila kupon ini menang undian |
+| `prize` / `won_at` | hadiah & waktu menang (bila `won`) |
+
+Akun (email) tidak ditemukan → `404`.
+
+```bash
+curl "$BASE/coupons/by-email/budi@sekolah.sch.id" -H "X-Api-Key: $KEY"
+```
+
+---
+
+## 6. Sekolah & Kabupaten (opsional)
 
 Biasanya **tak perlu** — cukup kirim `npsn` di sync peserta. Endpoint ini hanya
 kalau kalian mengelola sekolah/wilayah secara terpisah.
