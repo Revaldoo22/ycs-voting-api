@@ -169,14 +169,14 @@ export class VotesService {
     //  - PESERTA YCS: vote langsung tanpa follow, TAPI tetap dapat kupon.
     const profile = identity.profile;
     let grantCoupon = false;
-    if (profile && !profile.followedAt) {
-      if (identity.isParticipant) {
-        grantCoupon = true; // peserta: kupon tanpa syarat follow
-      } else {
-        if (!d.follow_confirmed) throw new VoteError("FOLLOW_REQUIRED");
-        if (!d.follow_proof_url) throw new VoteError("FOLLOW_PROOF_REQUIRED");
-        grantCoupon = true; // follow pertama + vote sukses = kupon undian
-      }
+    if (identity.isParticipant) {
+      // Peserta: vote tanpa follow, tetap dapat kupon. Insert kupon idempoten
+      // (unique per profile+source), jadi aman walau followedAt sudah ter-set.
+      grantCoupon = true;
+    } else if (profile && !profile.followedAt) {
+      if (!d.follow_confirmed) throw new VoteError("FOLLOW_REQUIRED");
+      if (!d.follow_proof_url) throw new VoteError("FOLLOW_PROOF_REQUIRED");
+      grantCoupon = true; // follow pertama + vote sukses = kupon undian
     }
 
     // Stempel gelombang aktif (null bila tidak ada round berjalan).
