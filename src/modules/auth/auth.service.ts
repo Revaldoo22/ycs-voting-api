@@ -82,25 +82,48 @@ export class AuthService {
 
   /** Google SSO: find-or-create a voter account keyed by email. */
   async googleLogin(g: GoogleUser) {
+    // Email cocok record peserta (dari web kedua)? Datanya sudah lengkap +
+    // sudah follow saat daftar → akun langsung "onboarded", tak perlu wizard.
+    const part = (await this.profiles.manager.query(
+      `select p.name, p.school_id, pr.phone_number
+         from participants p
+         join profiles pr on pr.id = p.profile_id
+        where lower(p.email) = lower($1)
+        limit 1`,
+      [g.email],
+    )) as { name: string; school_id: string | null; phone_number: string | null }[];
+    const asParticipant = part[0] ?? null;
+
     let user = await this.profiles.findOneBy({ email: g.email });
     if (!user) {
       user = await this.profiles.save(
         this.profiles.create({
           email: g.email,
-          name: g.name,
+          name: asParticipant?.name ?? g.name,
           avatarUrl: g.picture,
           role: "voter",
-          onboarded: false,
+          phoneNumber: asParticipant?.phone_number ?? null,
+          schoolId: asParticipant?.school_id ?? null,
+          // Peserta: data lengkap dari web kedua → langsung onboarded.
+          onboarded: !!asParticipant,
         }),
       );
-    } else if (g.picture && g.picture !== user.avatarUrl) {
-      // Foto selalu ikut akun Google — refresh tiap login.
-      user.avatarUrl = g.picture;
-      await this.profiles.save(user);
+    } else {
+      let changed = false;
+      if (g.picture && g.picture !== user.avatarUrl) {
+        user.avatarUrl = g.picture;
+        changed = true;
+      }
+      // Akun sudah ada tapi ternyata peserta & belum onboarded → tandai.
+      if (asParticipant && !user.onboarded) {
+        user.onboarded = true;
+        if (!user.phoneNumber) user.phoneNumber = asParticipant.phone_number;
+        if (!user.schoolId) user.schoolId = asParticipant.school_id;
+        changed = true;
+      }
+      if (changed) await this.profiles.save(user);
     }
     const token = await this.sign(user);
-    // Voters land on the wizard until they've completed it; other roles
-    // (admin logging in with a Google-linked account) go to their home.
     const redirect =
       user.role === "voter" && !user.onboarded
         ? "/onboarding"
