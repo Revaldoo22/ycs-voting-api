@@ -4,6 +4,7 @@ import {
   IsArray,
   IsEmail,
   IsIn,
+  IsObject,
   IsOptional,
   IsString,
   IsUUID,
@@ -74,6 +75,14 @@ export class CastVoteDto extends VoterInfoDto {
   @IsOptional()
   @IsUrl({ require_tld: false }, { message: "Bukti follow TikTok tidak valid" })
   follow_proof_tiktok?: string;
+
+  /**
+   * Bukti follow per tugas: { key tugas → URL screenshot }. Key & URL
+   * divalidasi di service (wajib lengkap semua tugas).
+   */
+  @IsOptional()
+  @IsObject()
+  follow_proofs?: Record<string, string>;
 }
 
 export class CreateSubmissionDto extends VoterInfoDto {

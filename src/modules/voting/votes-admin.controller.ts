@@ -164,7 +164,9 @@ export class VotesAdminController {
             {
               followedAt: profile.followedAt ?? new Date(),
               followProofUrl:
-                profile.followProofUrl ?? vote.followProofs?.ig ?? null,
+                profile.followProofUrl ??
+                Object.values(vote.followProofs ?? {})[0] ??
+                null,
             },
           );
           const code =

@@ -9,8 +9,12 @@ import {
 export type VoteKind = "daily5";
 export type VoteStatus = "pending" | "approved";
 
-/** Bukti follow per tugas (screenshot), direview admin sebelum poin masuk. */
-export type FollowProofs = { ig?: string; tiktok?: string };
+/**
+ * Bukti follow per tugas (key tugas → URL screenshot), direview admin
+ * sebelum poin masuk. Key: stekom_tiktok, stekom_ig, toploker_tiktok,
+ * toploker_ig, wa_stekom, wa_ycs (data lama: ig, tiktok).
+ */
+export type FollowProofs = Record<string, string>;
 
 // 1 akun = 1 vote SEUMUR EVENT. Unique index kini GLOBAL per identitas
 // (email/WA/device), bukan lagi per (peserta+tanggal+kind) — sekali satu
