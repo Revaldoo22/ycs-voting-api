@@ -12,7 +12,7 @@ export class VoterSelfController {
   @Get("today")
   async today(@CurrentUser() user: JwtPayload) {
     const rows = await this.db.query(
-      `select dv.vote_kind, dv.points, dv.created_at,
+      `select dv.vote_kind, dv.points, dv.created_at, dv.status,
               p.id as participant_id, p.name as participant_name
        from daily_votes dv
        join participants p on p.id = dv.participant_id

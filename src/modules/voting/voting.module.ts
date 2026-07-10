@@ -17,6 +17,7 @@ import { VotesService } from "./votes.service";
 import { SubmissionsService } from "./submissions.service";
 import { VotingController } from "./voting.controller";
 import { VoterSelfController } from "./voter-self.controller";
+import { VotesAdminController } from "./votes-admin.controller";
 
 @Module({
   imports: [
@@ -33,7 +34,7 @@ import { VoterSelfController } from "./voter-self.controller";
     RoundsModule,
     AuthModule,
   ],
-  controllers: [VotingController, VoterSelfController],
+  controllers: [VotingController, VoterSelfController, VotesAdminController],
   providers: [AntiCheatService, VotesService, SubmissionsService],
   exports: [AntiCheatService],
 })

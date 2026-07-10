@@ -28,7 +28,10 @@ const MESSAGES: Record<string, [string, number]> = {
   ],
   ALREADYVOTED: ["Kamu sudah menggunakan hak vote-mu. Satu akun hanya bisa vote sekali.", 409],
   FOLLOW_REQUIRED: ["Follow akun Universitas STEKOM dulu untuk vote pertamamu.", 409],
-  FOLLOW_PROOF_REQUIRED: ["Upload screenshot bukti follow dulu.", 400],
+  FOLLOW_PROOF_REQUIRED: [
+    "Upload screenshot bukti untuk SEMUA tugas follow (Instagram & TikTok) dulu.",
+    400,
+  ],
   IPLIMIT: ["Batas vote harian dari jaringan ini tercapai.", 409],
   MISSINGDATA: ["Data tidak lengkap.", 400],
   TOOMANY: ["Maksimal 5 bukti per pengiriman.", 400],
@@ -73,8 +76,8 @@ export class VotingController {
       );
     }
     try {
-      const participant = await this.votes.cast(dto, user.sub);
-      return { ok: true, participant };
+      const { participant, pending } = await this.votes.cast(dto, user.sub);
+      return { ok: true, pending, participant };
     } catch (err) {
       mapError(err);
     }

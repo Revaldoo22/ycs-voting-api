@@ -4,6 +4,7 @@ import { DataSource, Repository } from "typeorm";
 import {
   Coupon,
   DailyVote,
+  FollowProofs,
   Participant,
   Profile,
   School,
@@ -164,19 +165,26 @@ export class VotesService {
     // Tidak ada batasan by device/IP — dedup murni by email/WA di atas.
 
     // Gate follow + kupon undian.
-    //  - Voter biasa: wajib follow akun Univ STEKOM (sekali seumur event)
-    //    sebelum vote → dapat kupon.
+    //  - Voter biasa: wajib follow akun Univ STEKOM (bukti per tugas: IG &
+    //    TikTok). Vote masuk sebagai PENDING — poin & kupon baru diberikan
+    //    setelah admin approve buktinya.
     //  - PESERTA YCS: vote langsung tanpa follow, TAPI tetap dapat kupon.
     const profile = identity.profile;
     let grantCoupon = false;
+    let needsReview = false;
+    let followProofs: FollowProofs | null = null;
     if (identity.isParticipant) {
       // Peserta: vote tanpa follow, tetap dapat kupon. Insert kupon idempoten
       // (unique per profile+source), jadi aman walau followedAt sudah ter-set.
       grantCoupon = true;
     } else if (profile && !profile.followedAt) {
       if (!d.follow_confirmed) throw new VoteError("FOLLOW_REQUIRED");
-      if (!d.follow_proof_url) throw new VoteError("FOLLOW_PROOF_REQUIRED");
-      grantCoupon = true; // follow pertama + vote sukses = kupon undian
+      // Bukti per tugas. follow_proof_url (kontrak lama) diterima sebagai IG.
+      const ig = d.follow_proof_ig ?? d.follow_proof_url;
+      const tiktok = d.follow_proof_tiktok;
+      if (!ig || !tiktok) throw new VoteError("FOLLOW_PROOF_REQUIRED");
+      followProofs = { ig, tiktok };
+      needsReview = true;
     }
 
     // Stempel gelombang aktif (null bila tidak ada round berjalan).
@@ -196,6 +204,9 @@ export class VotesService {
           // device/server/ip tidak dipakai lagi untuk anti-cheat.
           voteKind: kind,
           points,
+          // Perlu review bukti follow → pending; poin ditahan sampai approve.
+          status: needsReview ? "pending" : "approved",
+          followProofs,
           voterName: name.trim(),
           voterPhone: phone,
           voterEmail: email,
@@ -203,12 +214,14 @@ export class VotesService {
           voterSchool: d.school?.trim() || null,
           voterClass: d.class?.trim() || null,
         });
-        await em
-          .getRepository(Participant)
-          .increment({ id: d.participant_id }, "totalPoints", points);
+        if (!needsReview) {
+          await em
+            .getRepository(Participant)
+            .increment({ id: d.participant_id }, "totalPoints", points);
+        }
 
-        // Terbitkan kupon undian (sekali). Voter: setelah follow. Peserta:
-        // langsung tanpa follow.
+        // Terbitkan kupon undian (sekali). Peserta: langsung tanpa follow.
+        // Voter biasa: kupon + followedAt diberikan saat admin APPROVE.
         if (grantCoupon && profile) {
           await em.getRepository(Profile).update(
             { id: profile.id },
@@ -235,7 +248,10 @@ export class VotesService {
             .execute();
         }
 
-        return em.getRepository(Participant).findOneBy({ id: d.participant_id });
+        const part = await em
+          .getRepository(Participant)
+          .findOneBy({ id: d.participant_id });
+        return { participant: part, pending: needsReview };
       });
     } catch (err) {
       if ((err as { code?: string }).code === "23505") {

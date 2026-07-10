@@ -60,10 +60,20 @@ export class CastVoteDto extends VoterInfoDto {
   @IsOptional()
   follow_confirmed?: boolean;
 
-  /** Screenshot bukti follow (wajib saat follow_confirmed). */
+  /** Screenshot bukti follow (kontrak lama — masih diterima). */
   @IsOptional()
   @IsUrl({ require_tld: false }, { message: "Bukti follow tidak valid" })
   follow_proof_url?: string;
+
+  /** Bukti follow per tugas: screenshot follow Instagram Univ STEKOM. */
+  @IsOptional()
+  @IsUrl({ require_tld: false }, { message: "Bukti follow IG tidak valid" })
+  follow_proof_ig?: string;
+
+  /** Bukti follow per tugas: screenshot follow TikTok Univ STEKOM. */
+  @IsOptional()
+  @IsUrl({ require_tld: false }, { message: "Bukti follow TikTok tidak valid" })
+  follow_proof_tiktok?: string;
 }
 
 export class CreateSubmissionDto extends VoterInfoDto {

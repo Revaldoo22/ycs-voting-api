@@ -64,12 +64,18 @@ export class AuthController {
       const { token, redirect } = await this.auth.googleLogin(gUser);
       res.cookie(AUTH_COOKIE, token, COOKIE_OPTS);
       // Wizard tetap prioritas; setelah itu hormati next (path internal saja
-      // — cegah open redirect).
+      // — cegah open redirect). Saat wizard, next dibawa sebagai query agar
+      // selesai onboarding user kembali ke halaman asalnya.
       const next =
         state && state.startsWith("/") && !state.startsWith("//")
           ? state
           : null;
-      return res.redirect(redirect === "/onboarding" ? redirect : next ?? redirect);
+      if (redirect === "/onboarding") {
+        return res.redirect(
+          next ? `/onboarding?next=${encodeURIComponent(next)}` : redirect,
+        );
+      }
+      return res.redirect(next ?? redirect);
     } catch {
       return res.redirect("/login?sso=failed");
     }

@@ -295,6 +295,8 @@ export class RoundsService {
     return this.db.query(
       `select rs.school_id, s.name as school_name, rs.status,
               rg.id as region_id, coalesce(rg.name, 'Tanpa Kabupaten') as region_name,
+              prov.id as province_id,
+              coalesce(prov.name, 'Tanpa Provinsi') as province_name,
               rs.carry_points::int as carry_points,
               coalesce(pt.points, 0)::int as round_points,
               (rs.carry_points + coalesce(pt.points, 0))::int as points,
@@ -302,6 +304,7 @@ export class RoundsService {
        from round_schools rs
        join schools s on s.id = rs.school_id
        left join regions rg on rg.id = s.region_id
+       left join regions prov on prov.id = rg.parent_id
        left join lateral (
          select coalesce(sum(p.total_points), 0) as points
          from participants p

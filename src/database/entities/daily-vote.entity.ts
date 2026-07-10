@@ -7,6 +7,10 @@ import {
 } from "typeorm";
 
 export type VoteKind = "daily5";
+export type VoteStatus = "pending" | "approved";
+
+/** Bukti follow per tugas (screenshot), direview admin sebelum poin masuk. */
+export type FollowProofs = { ig?: string; tiktok?: string };
 
 // 1 akun = 1 vote SEUMUR EVENT. Unique index kini GLOBAL per identitas
 // (email/WA/device), bukan lagi per (peserta+tanggal+kind) — sekali satu
@@ -35,6 +39,19 @@ export class DailyVote {
 
   @Column({ type: "int", default: 1 })
   points!: number;
+
+  /**
+   * Vote pertama voter (wajib follow) masuk sebagai 'pending' — poin baru
+   * dihitung setelah admin approve bukti follow. Reject = baris dihapus
+   * (hak vote kembali). Vote lain (peserta/boost) langsung 'approved'.
+   */
+  @Column({ type: "text", default: "approved" })
+  @Index("dv_status")
+  status!: VoteStatus;
+
+  /** Bukti follow per tugas: { ig, tiktok } (URL screenshot). */
+  @Column({ name: "follow_proofs", type: "jsonb", nullable: true })
+  followProofs!: FollowProofs | null;
 
   /** Vote sintetis yang dibuat admin (boost). Bisa di-rollback per gelombang. */
   @Column({ name: "is_bot", type: "boolean", default: false })

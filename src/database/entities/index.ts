@@ -1,7 +1,12 @@
 export { School } from "./school.entity";
 export { Participant, type ParticipantStatus } from "./participant.entity";
 export { Profile, type Role } from "./profile.entity";
-export { DailyVote, type VoteKind } from "./daily-vote.entity";
+export {
+  DailyVote,
+  type VoteKind,
+  type VoteStatus,
+  type FollowProofs,
+} from "./daily-vote.entity";
 export {
   Quest,
   type QuestStatus,
