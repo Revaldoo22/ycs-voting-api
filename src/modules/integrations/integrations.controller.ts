@@ -150,13 +150,15 @@ class SyncParticipantDto {
   @Matches(/^[0-9+\-\s().]+$/)
   phone_number!: string;
 
-  /** NPSN sekolah (dari data master) — WAJIB. Dari NPSN, kabupaten & provinsi
-   *  otomatis terisi (tak perlu region_code). 8 digit angka. */
-  @IsString({ message: "npsn wajib diisi." })
-  @Matches(/^\d{8}$/, { message: "npsn harus 8 digit angka." })
-  npsn!: string;
+  /** NPSN sekolah — OPSIONAL. Bila cocok data master, kabupaten/provinsi
+   *  otomatis terisi. Bila kosong/salah, fallback ke school_name; sync
+   *  TIDAK pernah ditolak karena NPSN. Kunci unik peserta = email. */
+  @IsOptional()
+  @IsString()
+  @MaxLength(20)
+  npsn?: string;
 
-  /** Nama sekolah — cadangan tampilan bila NPSN belum ada di master. */
+  /** Nama sekolah — dipakai bila NPSN kosong / tak cocok master. */
   @IsOptional()
   @IsString()
   @MinLength(2)
@@ -312,15 +314,14 @@ export class IntegrationsController {
     const phone = normalizePhone(dto.phone_number);
     const email = dto.email.trim().toLowerCase();
 
-    // NPSN wajib cocok sekolah master → kabupaten/provinsi dijamin terisi.
-    const npsn = dto.npsn.replace(/\D/g, "");
-    const master = await this.db.getRepository(School).findOneBy({ npsn });
-    if (!master) {
-      throw new ConflictException(
-        `NPSN ${dto.npsn} tidak ditemukan di data master sekolah.`,
-      );
-    }
-    const school = master;
+    // Sekolah best-effort: NPSN dipakai KALAU cocok master; kalau kosong /
+    // salah, fallback ke school_name (find-or-create + petakan region).
+    // NPSN tidak pernah menolak sync — kunci unik peserta hanya EMAIL.
+    const school = await this.resolveSchool({
+      npsn: dto.npsn,
+      name: dto.school_name,
+      regionCode: dto.region_code,
+    });
 
     // Kunci: email peserta. Adopsi peserta lama by nomor kalau email belum ada.
     let participant = await this.participants.findOneBy({ email });
