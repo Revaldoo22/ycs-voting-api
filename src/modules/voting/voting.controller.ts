@@ -29,9 +29,10 @@ const MESSAGES: Record<string, [string, number]> = {
   ALREADYVOTED: ["Kamu sudah menggunakan hak vote-mu. Satu akun hanya bisa vote sekali.", 409],
   FOLLOW_REQUIRED: ["Follow akun Universitas STEKOM dulu untuk vote pertamamu.", 409],
   FOLLOW_PROOF_REQUIRED: [
-    "Upload screenshot bukti untuk SEMUA tugas follow dulu (6 tugas).",
+    "Upload screenshot bukti tugas follow dulu (minimal 1 file).",
     400,
   ],
+  FOLLOW_PROOF_TOOMANY: ["Maksimal 12 screenshot bukti follow.", 400],
   IPLIMIT: ["Batas vote harian dari jaringan ini tercapai.", 409],
   MISSINGDATA: ["Data tidak lengkap.", 400],
   TOOMANY: ["Maksimal 5 bukti per pengiriman.", 400],

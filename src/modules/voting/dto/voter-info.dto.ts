@@ -4,7 +4,6 @@ import {
   IsArray,
   IsEmail,
   IsIn,
-  IsObject,
   IsOptional,
   IsString,
   IsUUID,
@@ -77,12 +76,11 @@ export class CastVoteDto extends VoterInfoDto {
   follow_proof_tiktok?: string;
 
   /**
-   * Bukti follow per tugas: { key tugas → URL screenshot }. Key & URL
-   * divalidasi di service (wajib lengkap semua tugas).
+   * Screenshot bukti follow: array URL (kontrak baru) atau object key
+   * tugas → URL (kontrak lama). Isi divalidasi di service.
    */
   @IsOptional()
-  @IsObject()
-  follow_proofs?: Record<string, string>;
+  follow_proofs?: string[] | Record<string, string>;
 }
 
 export class CreateSubmissionDto extends VoterInfoDto {

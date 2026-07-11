@@ -21,18 +21,8 @@ export class VoteError extends ConflictException {
   }
 }
 
-/**
- * Tugas follow wajib sebelum vote pertama — SEMUA harus ada buktinya.
- * Sinkron dengan daftar tugas di frontend (dialog follow halaman peserta).
- */
-export const REQUIRED_FOLLOW_TASKS = [
-  "stekom_tiktok", // TikTok Univ STEKOM
-  "stekom_ig", // Instagram Univ STEKOM
-  "toploker_tiktok", // TikTok TopLoker.com
-  "toploker_ig", // Instagram TopLoker.com
-  "wa_stekom", // Saluran WhatsApp UnivSTEKOM
-  "wa_ycs", // Saluran WhatsApp YCS 2026
-] as const;
+/** Batas jumlah screenshot bukti follow per vote. */
+export const MAX_FOLLOW_PROOFS = 12;
 
 @Injectable()
 export class VotesService {
@@ -192,30 +182,31 @@ export class VotesService {
       grantCoupon = true;
     } else if (profile && !profile.followedAt) {
       if (!d.follow_confirmed) throw new VoteError("FOLLOW_REQUIRED");
-      // Bukti per tugas — SEMUA tugas wajib ada screenshot-nya. Field lama
-      // (follow_proof_ig/tiktok/url) dipetakan ke key tugas STEKOM.
-      const raw: Record<string, unknown> = {
-        ...(d.follow_proofs ?? {}),
-      };
-      if (!raw.stekom_ig && (d.follow_proof_ig ?? d.follow_proof_url)) {
-        raw.stekom_ig = d.follow_proof_ig ?? d.follow_proof_url;
+      // Screenshot bukti follow: array URL (bebas, boleh banyak sekaligus).
+      // Kontrak lama (object per tugas / follow_proof_*) tetap diterima.
+      const rawList: unknown[] = Array.isArray(d.follow_proofs)
+        ? d.follow_proofs
+        : [
+            ...Object.values(d.follow_proofs ?? {}),
+            d.follow_proof_ig,
+            d.follow_proof_tiktok,
+            d.follow_proof_url,
+          ];
+      const urls = [
+        ...new Set(
+          rawList.filter(
+            (u): u is string =>
+              typeof u === "string" &&
+              u.length <= 500 &&
+              /^https?:\/\/.+/i.test(u),
+          ),
+        ),
+      ];
+      if (urls.length < 1) throw new VoteError("FOLLOW_PROOF_REQUIRED");
+      if (urls.length > MAX_FOLLOW_PROOFS) {
+        throw new VoteError("FOLLOW_PROOF_TOOMANY");
       }
-      if (!raw.stekom_tiktok && d.follow_proof_tiktok) {
-        raw.stekom_tiktok = d.follow_proof_tiktok;
-      }
-      const proofs: Record<string, string> = {};
-      for (const key of REQUIRED_FOLLOW_TASKS) {
-        const url = raw[key];
-        if (
-          typeof url !== "string" ||
-          url.length > 500 ||
-          !/^https?:\/\/.+/i.test(url)
-        ) {
-          throw new VoteError("FOLLOW_PROOF_REQUIRED");
-        }
-        proofs[key] = url;
-      }
-      followProofs = proofs;
+      followProofs = urls;
       needsReview = true;
     }
 
