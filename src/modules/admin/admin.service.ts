@@ -35,13 +35,25 @@ export class AdminService {
   constructor(private readonly db: DataSource) {}
 
   async stats() {
+    // total_voters SAMA definisinya dengan halaman Daftar Voter: gabungan
+    // (pernah vote) ∪ (pernah quest approved) ∪ (voter onboarded walau belum
+    // vote) — supaya angka dashboard & daftar tidak beda.
     const rows = await this.db.query(`
       select
         (select count(distinct school_id) from participants
           where school_id is not null)::int                          as total_schools,
         (select count(*) from participants)::int                     as total_participants,
-        (select count(distinct voter_phone) from daily_votes
-          where voter_phone is not null)::int                        as total_voters,
+        (select count(*) from (
+           select voter_phone as phone from daily_votes
+             where voter_phone is not null
+           union
+           select voter_phone from submissions
+             where status = 'approved' and voter_phone is not null
+           union
+           select phone_number from profiles
+             where role = 'voter' and onboarded = true
+               and phone_number is not null
+        ) u)::int                                                    as total_voters,
         (select count(*) from daily_votes)::int                      as total_votes,
         (select coalesce(sum(total_points), 0) from participants)::int as total_points`);
     return rows[0];
