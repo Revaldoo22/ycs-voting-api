@@ -1,7 +1,16 @@
-import { Controller, Get, UseGuards } from "@nestjs/common";
+import { Body, Controller, Get, Patch, UseGuards } from "@nestjs/common";
+import { IsArray, IsOptional, IsUUID } from "class-validator";
 import { DataSource } from "typeorm";
 import { JwtGuard, JwtPayload } from "../../common/guards/jwt.guard";
 import { CurrentUser } from "../../common/decorators/current-user.decorator";
+
+class MarkReadDto {
+  /** ID notifikasi yang ditandai dibaca. Kosong = tandai semua. */
+  @IsOptional()
+  @IsArray()
+  @IsUUID("4", { each: true })
+  ids?: string[];
+}
 
 /** Riwayat vote voter login. 1 akun = 1 vote seumur event. */
 @Controller("voter")
@@ -23,6 +32,45 @@ export class VoterSelfController {
     );
     // 1 akun = 1 vote seumur event: has_voted true kalau sudah pernah vote.
     return { votes: rows, has_voted: rows.length > 0 };
+  }
+
+  /** Notifikasi voter (mis. vote ditolak) + jumlah belum dibaca. */
+  @Get("notifications")
+  async notifications(@CurrentUser() user: JwtPayload) {
+    const items = await this.db.query(
+      `select id, type, title, body, read_at, created_at
+       from notifications
+       where profile_id = $1
+       order by created_at desc
+       limit 50`,
+      [user.sub],
+    );
+    const unread = items.filter(
+      (n: { read_at: string | null }) => n.read_at === null,
+    ).length;
+    return { items, unread };
+  }
+
+  /** Tandai notifikasi sudah dibaca (ids tertentu atau semua bila kosong). */
+  @Patch("notifications/read")
+  async markRead(
+    @CurrentUser() user: JwtPayload,
+    @Body() dto: MarkReadDto,
+  ) {
+    if (dto.ids && dto.ids.length > 0) {
+      await this.db.query(
+        `update notifications set read_at = now()
+         where profile_id = $1 and read_at is null and id = any($2::uuid[])`,
+        [user.sub, dto.ids],
+      );
+    } else {
+      await this.db.query(
+        `update notifications set read_at = now()
+         where profile_id = $1 and read_at is null`,
+        [user.sub],
+      );
+    }
+    return { ok: true };
   }
 
   /** Kupon undian milik voter (dari follow). */

@@ -15,7 +15,10 @@ import {
   ArrayMinSize,
   IsArray,
   IsIn,
+  IsOptional,
+  IsString,
   IsUUID,
+  MaxLength,
 } from "class-validator";
 import { DataSource, EntityManager } from "typeorm";
 import {
@@ -27,15 +30,27 @@ import {
 import { JwtGuard } from "../../common/guards/jwt.guard";
 import { RolesGuard } from "../../common/guards/roles.guard";
 import { Roles } from "../../common/decorators/roles.decorator";
+import { NotificationsService } from "./notifications.service";
 
 class ReviewVoteDto {
   @IsIn(["approved", "rejected"])
   status!: "approved" | "rejected";
+
+  /** Alasan penolakan — masuk ke notifikasi voter. */
+  @IsOptional()
+  @IsString()
+  @MaxLength(300)
+  reason?: string;
 }
 
 class BulkReviewVoteDto {
   @IsIn(["approved", "rejected"])
   status!: "approved" | "rejected";
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(300)
+  reason?: string;
 
   @IsArray()
   @ArrayMinSize(1)
@@ -53,7 +68,10 @@ class BulkReviewVoteDto {
 @UseGuards(JwtGuard, RolesGuard)
 @Roles("admin")
 export class VotesAdminController {
-  constructor(private readonly db: DataSource) {}
+  constructor(
+    private readonly db: DataSource,
+    private readonly notifications: NotificationsService,
+  ) {}
 
   @Get()
   list(@Query("status") status?: string) {
@@ -97,7 +115,7 @@ export class VotesAdminController {
     @Body() dto: ReviewVoteDto,
   ) {
     return this.db.transaction(async (em) => {
-      const result = await this.reviewOne(em, id, dto.status);
+      const result = await this.reviewOne(em, id, dto.status, dto.reason);
       if (!result) throw new NotFoundException("Vote tidak ditemukan.");
       return result;
     });
@@ -110,7 +128,7 @@ export class VotesAdminController {
       let processed = 0;
       for (const id of dto.ids) {
         // Id yang sudah hilang (mis. direview admin lain) di-skip saja.
-        if (await this.reviewOne(em, id, dto.status)) processed++;
+        if (await this.reviewOne(em, id, dto.status, dto.reason)) processed++;
       }
       return { ok: true, processed };
     });
@@ -121,6 +139,7 @@ export class VotesAdminController {
     em: EntityManager,
     id: string,
     status: "approved" | "rejected",
+    reason?: string,
   ) {
       const vote = await em
         .getRepository(DailyVote)
@@ -139,6 +158,28 @@ export class VotesAdminController {
             .getRepository(Participant)
             .increment({ id: vote.participantId }, "totalPoints", -vote.points);
         }
+
+        // Notifikasi ke voter SEBELUM baris dihapus — alasan penolakan +
+        // ajakan vote ulang. Baris vote hilang, jadi ini satu-satunya jejak.
+        const participant = await em
+          .getRepository(Participant)
+          .findOne({ where: { id: vote.participantId }, select: ["name"] });
+        const who = participant?.name ?? "peserta";
+        const alasan = reason?.trim()
+          ? ` Alasan: ${reason.trim()}.`
+          : " Bukti follow tidak sesuai.";
+        await this.notifications.notifyByVoter(
+          em,
+          { email: vote.voterEmail, phone: vote.voterPhone },
+          {
+            type: "vote_rejected",
+            title: "Vote kamu ditolak",
+            body:
+              `Vote kamu untuk ${who} belum bisa kami terima.${alasan}` +
+              " Kamu bisa vote lagi dengan bukti yang benar.",
+          },
+        );
+
         await em.getRepository(DailyVote).delete({ id });
         return { ok: true, removed: true };
       }
