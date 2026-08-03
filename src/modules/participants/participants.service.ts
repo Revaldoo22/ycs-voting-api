@@ -26,7 +26,7 @@ export class ParticipantsService {
     private readonly schools: SchoolsService,
   ) {}
 
-  /** Admin list — snake_case + nested school + login phone (old shape). */
+  /** Admin list, snake_case + nested school + login phone (old shape). */
   list() {
     return this.dataSource.query(`
       select p.*,

@@ -53,7 +53,7 @@ const MESSAGES: Record<string, [string, number]> = {
   DAILY_DONE: ["Quest harian ini sudah kamu kerjakan hari ini.", 409],
   ALREADY_DONE: ["Kamu sudah mengerjakan quest ini untuk peserta tersebut.", 409],
   GLOBAL_DONE: [
-    "Kamu sudah mengerjakan quest follow ini. Cukup follow sekali — tak perlu diulang di peserta lain.",
+    "Kamu sudah mengerjakan quest follow ini. Cukup follow sekali, tak perlu diulang di peserta lain.",
     409,
   ],
 };
@@ -76,7 +76,7 @@ export class VotingController {
     private readonly submissions: SubmissionsService,
   ) {}
 
-  /** POST /api/vote — WAJIB login voter (SSO + wizard). Identitas dari sesi. */
+  /** POST /api/vote, WAJIB login voter (SSO + wizard). Identitas dari sesi. */
   @Post("vote")
   @UseGuards(JwtGuard, RolesGuard)
   @Roles("voter", "participant")
@@ -95,7 +95,7 @@ export class VotingController {
     }
   }
 
-  /** POST /api/submissions — WAJIB login voter. Identitas dari sesi. */
+  /** POST /api/submissions, WAJIB login voter. Identitas dari sesi. */
   @Post("submissions")
   @UseGuards(JwtGuard, RolesGuard)
   @Roles("voter", "participant")

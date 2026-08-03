@@ -26,7 +26,7 @@ class UpdateSettingsDto {
 export class SettingsController {
   constructor(private readonly settings: SettingsService) {}
 
-  /** Public — the frontend gates overlays (maintenance/closed) with this. */
+  /** Public, the frontend gates overlays (maintenance/closed) with this. */
   @Get("public/settings")
   get() {
     return this.settings.getPublic();

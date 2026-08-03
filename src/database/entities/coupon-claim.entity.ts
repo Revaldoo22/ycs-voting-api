@@ -12,7 +12,7 @@ export type CouponClaimStatus = "pending" | "approved" | "rejected";
  * Klaim kupon undian handphone oleh voter (follow akun Univ STEKOM/TopLoker +
  * upload bukti), TERPISAH dari vote itu sendiri. Vote selalu langsung sukses;
  * klaim ini yang direview admin sebelum kupon diterbitkan. Satu profil hanya
- * bisa punya satu klaim (unique profileId) — reject menghapus baris agar
+ * bisa punya satu klaim (unique profileId), reject menghapus baris agar
  * voter bisa klaim ulang dengan bukti yang benar.
  */
 @Entity("coupon_claims")

@@ -6,7 +6,7 @@ import {
 import { ConfigService } from "@nestjs/config";
 
 /**
- * Klien Depot (media backend STEKOM) — pola broker:
+ * Klien Depot (media backend STEKOM), pola broker:
  * presign → PUT bytes langsung ke S3 → complete. API server Depot tidak
  * pernah dilewati bytes. Signed URL pendek umurnya, jadi DB kita hanya
  * menyimpan fileId (dibungkus /api/media/:id).
@@ -60,7 +60,7 @@ export class DepotService {
       uploadUrl: string;
     };
 
-    // Bytes langsung ke S3 — URL sudah bertanda tangan, tanpa header auth.
+    // Bytes langsung ke S3, URL sudah bertanda tangan, tanpa header auth.
     const putRes = await fetch(uploadUrl, {
       method: "PUT",
       headers: { "Content-Type": mime },
@@ -83,7 +83,7 @@ export class DepotService {
     return { fileId: String(fileId) };
   }
 
-  /** Signed URL segar (short-lived) — jangan disimpan. */
+  /** Signed URL segar (short-lived), jangan disimpan. */
   async signedUrl(
     fileId: string,
     opts: { variant?: string; download?: boolean } = {},

@@ -17,7 +17,7 @@ export class SchoolsService {
   ) {}
 
   /**
-   * Hanya sekolah yang PUNYA peserta — inilah yang relevan dikelola admin.
+   * Hanya sekolah yang PUNYA peserta, inilah yang relevan dikelola admin.
    * Master 36rb+ sekolah (dari CSV) tak ditampilkan di sini; itu cuma
    * referensi untuk wizard voter. Return snake_case agar konsisten dg API lain.
    */
@@ -51,7 +51,7 @@ export class SchoolsService {
     return this.schools.save(this.schools.create({ name }));
   }
 
-  /** { school_id: participantCount } — used to guard deletion in the UI. */
+  /** { school_id: participantCount }, used to guard deletion in the UI. */
   async participantCounts(): Promise<Record<string, number>> {
     const rows = await this.participants
       .createQueryBuilder("p")

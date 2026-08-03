@@ -31,7 +31,7 @@ class ReviewVoteDto {
   @IsIn(["approved", "rejected"])
   status!: "approved" | "rejected";
 
-  /** Alasan penolakan — masuk ke notifikasi voter. */
+  /** Alasan penolakan, masuk ke notifikasi voter. */
   @IsOptional()
   @IsString()
   @MaxLength(300)
@@ -57,7 +57,7 @@ class BulkReviewVoteDto {
 /**
  * Review vote pertama voter (bukti follow 2 saluran WhatsApp). Approve =
  * poin masuk ke peserta + voter ditandai follow-WA terverifikasi (TIDAK
- * menerbitkan kupon — kupon undian HP adalah klaim terpisah, lihat
+ * menerbitkan kupon, kupon undian HP adalah klaim terpisah, lihat
  * CouponClaimsAdminController). Reject = baris vote DIHAPUS agar hak vote
  * voter kembali (bisa vote ulang dengan bukti yang benar).
  */
@@ -156,7 +156,7 @@ export class VotesAdminController {
             .increment({ id: vote.participantId }, "totalPoints", -vote.points);
         }
 
-        // Notifikasi ke voter SEBELUM baris dihapus — alasan penolakan +
+        // Notifikasi ke voter SEBELUM baris dihapus, alasan penolakan +
         // ajakan vote ulang. Baris vote hilang, jadi ini satu-satunya jejak.
         const participant = await em
           .getRepository(Participant)
@@ -189,7 +189,7 @@ export class VotesAdminController {
         .getRepository(Participant)
         .increment({ id: vote.participantId }, "totalPoints", vote.points);
 
-      // Tandai follow-WA terverifikasi (bukan followedAt — field itu khusus
+      // Tandai follow-WA terverifikasi (bukan followedAt, field itu khusus
       // klaim kupon IG/TikTok, terpisah dari vote). Tidak menerbitkan kupon.
       if (vote.voterEmail) {
         const profile = await em

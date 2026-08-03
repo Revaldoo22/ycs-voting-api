@@ -47,7 +47,7 @@ import { CouponClaim } from "./coupon-claim.entity";
 import { Notification } from "./notification.entity";
 import { Round, RoundSchool } from "./round.entity";
 
-/** Single registration point — add new entities here once. */
+/** Single registration point, add new entities here once. */
 export const ENTITIES = [
   School,
   Participant,

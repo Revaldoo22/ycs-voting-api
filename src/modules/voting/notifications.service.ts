@@ -3,7 +3,7 @@ import { DataSource, EntityManager } from "typeorm";
 
 /**
  * Notifikasi voter. Karena DB_SYNC=false di produksi, tabelnya di-provision
- * idempoten saat boot (gaya raw-SQL codebase ini) — tak perlu migrasi.
+ * idempoten saat boot (gaya raw-SQL codebase ini), tak perlu migrasi.
  */
 @Injectable()
 export class NotificationsService implements OnModuleInit {

@@ -57,7 +57,7 @@ class UpsertParticipantDto {
   @MaxLength(150)
   school_name!: string;
 
-  /** Kode BPS kabupaten (opsional) — sekolah baru langsung terpetakan. */
+  /** Kode BPS kabupaten (opsional), sekolah baru langsung terpetakan. */
   @IsOptional()
   @IsString()
   @MaxLength(10)
@@ -85,7 +85,7 @@ class ChangePhoneDto {
   new_phone!: string;
 }
 
-/** Update peserta by ID — semua field opsional; hanya yang dikirim diubah. */
+/** Update peserta by ID, semua field opsional; hanya yang dikirim diubah. */
 class UpdateParticipantDto {
   @IsOptional()
   @IsString()
@@ -106,7 +106,7 @@ class UpdateParticipantDto {
   @MaxLength(150)
   school_name?: string;
 
-  /** ID kabupaten internal (UUID dari GET /regions) — prioritas di atas region_code. */
+  /** ID kabupaten internal (UUID dari GET /regions), prioritas di atas region_code. */
   @IsOptional()
   @IsUUID()
   region_id?: string;
@@ -156,7 +156,7 @@ class SyncParticipantDto {
   @Matches(/^[0-9+\-\s().]+$/)
   phone_number!: string;
 
-  /** NPSN sekolah — OPSIONAL. Bila cocok data master, kabupaten/provinsi
+  /** NPSN sekolah, OPSIONAL. Bila cocok data master, kabupaten/provinsi
    *  otomatis terisi. Bila kosong/salah, fallback ke school_name; sync
    *  TIDAK pernah ditolak karena NPSN. Kunci unik peserta = email. */
   @IsOptional()
@@ -164,7 +164,7 @@ class SyncParticipantDto {
   @MaxLength(20)
   npsn?: string;
 
-  /** Nama sekolah — dipakai bila NPSN kosong / tak cocok master. */
+  /** Nama sekolah, dipakai bila NPSN kosong / tak cocok master. */
   @IsOptional()
   @IsString()
   @MinLength(2)
@@ -173,7 +173,7 @@ class SyncParticipantDto {
 
   /**
    * ID kabupaten internal sistem ini (UUID dari GET /regions). Dipakai kalau
-   * data kalian tidak punya NPSN — prioritas di atas region_code. NPSN yang
+   * data kalian tidak punya NPSN, prioritas di atas region_code. NPSN yang
    * valid/cocok master TETAP menang (wilayah sekolah master dianggap paling
    * akurat); field ini hanya fallback untuk sekolah tanpa NPSN.
    */
@@ -181,7 +181,7 @@ class SyncParticipantDto {
   @IsUUID()
   region_id?: string;
 
-  /** Kode BPS kabupaten (alternatif region_id) — fallback bila region_id kosong. */
+  /** Kode BPS kabupaten (alternatif region_id), fallback bila region_id kosong. */
   @IsOptional()
   @IsString()
   @MaxLength(10)
@@ -208,7 +208,7 @@ class UpsertSchoolDto {
   @MaxLength(150)
   name!: string;
 
-  /** ID kabupaten internal (UUID dari GET /regions) — prioritas di atas region_code. */
+  /** ID kabupaten internal (UUID dari GET /regions), prioritas di atas region_code. */
   @IsOptional()
   @IsUUID()
   region_id?: string;
@@ -272,12 +272,12 @@ export class IntegrationsController {
 
   /**
    * Resolusi sekolah untuk sync peserta. Prioritas:
-   *   1. `npsn` → cocokkan sekolah master (dari CSV) — region/kabupaten sudah
+   *   1. `npsn` → cocokkan sekolah master (dari CSV), region/kabupaten sudah
    *      terisi otomatis. Paling andal, selalu menang kalau cocok.
    *   2. `name` → find-or-create by nama; kalau sekolah belum punya
    *      kabupaten (mis. tak ada NPSN), petakan dari, berurutan:
-   *        a. `regionId` — ID kabupaten internal (UUID dari GET /regions).
-   *        b. `regionCode` — kode BPS (alternatif regionId).
+   *        a. `regionId`, ID kabupaten internal (UUID dari GET /regions).
+   *        b. `regionCode`, kode BPS (alternatif regionId).
    *        c. warisan dari sekolah master yang namanya cocok.
    */
   private async resolveSchool(opts: {
@@ -286,7 +286,7 @@ export class IntegrationsController {
     regionId?: string;
     regionCode?: string;
   }) {
-    // 1. by NPSN — sekolah master, region sudah ikut. NPSN dinormalisasi
+    // 1. by NPSN, sekolah master, region sudah ikut. NPSN dinormalisasi
     // (buang non-digit) agar spasi/format kecil tak bikin gagal cocok.
     const npsn = (opts.npsn ?? "").replace(/\D/g, "");
     if (npsn) {
@@ -303,7 +303,7 @@ export class IntegrationsController {
     // Jaring pengaman region kalau sekolah (baru/lama) belum punya region:
     if (!school.regionId) {
       let regionId: string | null = null;
-      // a. dari regionId (UUID kabupaten internal) bila dikirim — dicek ada.
+      // a. dari regionId (UUID kabupaten internal) bila dikirim, dicek ada.
       if (opts.regionId) {
         const region = await this.regions.findOneBy({ id: opts.regionId });
         regionId = region?.id ?? null;
@@ -314,7 +314,7 @@ export class IntegrationsController {
         regionId = region?.id ?? null;
       }
       // c. warisi region dari sekolah master yang namanya cocok (NPSN salah/
-      //    kosong tapi nama ada di master) — supaya kabupaten tetap terisi.
+      //    kosong tapi nama ada di master), supaya kabupaten tetap terisi.
       if (!regionId) {
         const rows = (await this.db.query(
           `select region_id from schools
@@ -347,7 +347,7 @@ export class IntegrationsController {
 
     // Sekolah best-effort: NPSN dipakai KALAU cocok master; kalau kosong /
     // salah, fallback ke school_name (find-or-create + petakan region).
-    // NPSN tidak pernah menolak sync — kunci unik peserta hanya EMAIL.
+    // NPSN tidak pernah menolak sync, kunci unik peserta hanya EMAIL.
     const school = await this.resolveSchool({
       npsn: dto.npsn,
       name: dto.school_name,
@@ -448,7 +448,7 @@ export class IntegrationsController {
     const contents = await this.contents.findBy({
       participantId: participant.id,
     });
-    // Sertakan ringkasan (id link, stats voter/poin, peringkat) — sama seperti
+    // Sertakan ringkasan (id link, stats voter/poin, peringkat), sama seperti
     // by-name, tapi email jadi kunci yang unik & tak ambigu.
     const summary = await this.participantSummary(participant.id);
     return { ...summary, participant, contents };
@@ -491,7 +491,7 @@ export class IntegrationsController {
     )[0] ?? { voters: 0, votes: 0 };
 
     // Peringkat: rank by total_points DESC (id sebagai tiebreak deterministik)
-    // di tiga lingkup — nasional, kabupaten (region sekolah), sekolah.
+    // di tiga lingkup, nasional, kabupaten (region sekolah), sekolah.
     const rank = (
       (await this.db.query(
         `with ranked as (

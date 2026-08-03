@@ -62,7 +62,7 @@ export class SubmissionsService {
     };
   }
 
-  /** Port of record_submission v6 (migration 0026) — same rules & codes. */
+  /** Port of record_submission v6 (migration 0026), same rules & codes. */
   async record(d: CreateSubmissionDto, actorId?: string) {
     // Identitas WAJIB dari akun login (SSO + wizard), bukan dari body.
     const identity = await this.resolveVoter(actorId);

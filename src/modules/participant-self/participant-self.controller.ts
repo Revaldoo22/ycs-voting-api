@@ -61,7 +61,7 @@ class ContentDto {
   label?: string;
 }
 
-/** Old path parity: /api/participant/* — the logged-in participant's own data. */
+/** Old path parity: /api/participant/*, the logged-in participant's own data. */
 @Controller("participant")
 @UseGuards(JwtGuard, RolesGuard)
 @Roles("participant")

@@ -7,7 +7,7 @@ import {
   MinLength,
 } from "class-validator";
 
-/** Edit akun voter — WA & foto tidak termasuk (identitas & Google). */
+/** Edit akun voter, WA & foto tidak termasuk (identitas & Google). */
 export class UpdateProfileDto {
   @IsOptional()
   @IsString()

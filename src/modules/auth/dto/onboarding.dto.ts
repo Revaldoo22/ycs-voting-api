@@ -42,7 +42,7 @@ export class OnboardingDto {
   })
   status!: string;
 
-  /** Kode BPS kabupaten (regency) asal — dari sekolah terpilih. */
+  /** Kode BPS kabupaten (regency) asal, dari sekolah terpilih. */
   @IsOptional()
   @IsString()
   @MaxLength(10)
@@ -56,7 +56,7 @@ export class OnboardingDto {
   @IsIn(["belum_tahu", "pernah_dengar", "sudah_minat"])
   stekom_awareness?: string;
 
-  /** Sumber tahu STEKOM — diisi bila awareness = pernah_dengar / sudah_minat. */
+  /** Sumber tahu STEKOM, diisi bila awareness = pernah_dengar / sudah_minat. */
   @IsOptional()
   @IsString()
   @MaxLength(100)

@@ -12,7 +12,7 @@ import {
 } from "class-validator";
 
 /**
- * Identitas voter. TIDAK lagi dikirim klien — server mengisinya dari akun
+ * Identitas voter. TIDAK lagi dikirim klien, server mengisinya dari akun
  * login (SSO + wizard). Dibiarkan opsional agar body lama tetap diterima,
  * tapi nilainya selalu ditimpa nilai dari profil sesi.
  */

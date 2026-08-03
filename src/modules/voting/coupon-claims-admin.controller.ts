@@ -32,7 +32,7 @@ class ReviewClaimDto {
   @IsIn(["approved", "rejected"])
   status!: "approved" | "rejected";
 
-  /** Alasan penolakan — masuk ke notifikasi voter. */
+  /** Alasan penolakan, masuk ke notifikasi voter. */
   @IsOptional()
   @IsString()
   @MaxLength(300)
@@ -56,7 +56,7 @@ class BulkReviewClaimDto {
 }
 
 /**
- * Review klaim kupon undian (bukti follow), TERPISAH dari vote — vote selalu
+ * Review klaim kupon undian (bukti follow), TERPISAH dari vote, vote selalu
  * langsung sukses. Approve = voter dapat kupon undian. Reject = baris klaim
  * DIHAPUS agar voter bisa klaim ulang dengan bukti yang benar.
  */

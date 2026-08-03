@@ -142,7 +142,7 @@ export class AuthService {
     // Voter yang email SSO-nya cocok peserta → dia "adalah peserta". Dipakai
     // untuk label di UI + blok self-vote (dia tak bisa vote dirinya).
     // Sekolah & daerah untuk filter halaman vote (sekolahku/kabupatenku)
-    // DIAMBIL dari record peserta ini, bukan dari isian onboarding — supaya
+    // DIAMBIL dari record peserta ini, bukan dari isian onboarding, supaya
     // "teman sekolahku" akurat berdasar data peserta resmi.
     let selfParticipantId: string | null = null;
     let selfSchoolId: string | null = null;

@@ -8,7 +8,7 @@ export function normalizePhone(input: string): string {
 }
 
 /**
- * Canonical form of a proof link for de-duplication — mirrors the old
+ * Canonical form of a proof link for de-duplication, mirrors the old
  * normalize_link() SQL: lowercase, strip protocol/www/query/fragment/trailing /.
  */
 export function normalizeLink(url: string): string {

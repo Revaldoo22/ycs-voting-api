@@ -13,7 +13,7 @@ const LOCAL_DIR = "uploads";
  *   local (default) → ./uploads, diserve statis di /uploads/*
  *   s3              → bucket S3-compatible (MinIO/R2/Spaces/AWS)
  *   depot           → Depot media backend; DB simpan /api/media/:fileId
- *                     (URL permanen milik app — signed URL diminta segar
+ *                     (URL permanen milik app, signed URL diminta segar
  *                     saat diakses, karena umurnya pendek)
  * put() mengembalikan URL publik file.
  */

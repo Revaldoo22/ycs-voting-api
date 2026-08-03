@@ -25,7 +25,7 @@ export interface ActivityFilters {
 }
 
 /**
- * Admin aggregates — SQL ported from the old Supabase RPCs
+ * Admin aggregates, SQL ported from the old Supabase RPCs
  * (admin_stats, daily_vote_series, voter_growth_series, admin_voters 0025,
  * admin_activity_log 0024, voter_distribution, participant_point_log 0022,
  * participant_supporters_detail). All rows snake_case (old API shape).
@@ -37,7 +37,7 @@ export class AdminService {
   async stats() {
     // total_voters SAMA definisinya dengan halaman Daftar Voter: gabungan
     // (pernah vote) ∪ (pernah quest approved) ∪ (voter onboarded walau belum
-    // vote) — supaya angka dashboard & daftar tidak beda.
+    // vote), supaya angka dashboard & daftar tidak beda.
     const rows = await this.db.query(`
       select
         (select count(distinct school_id) from participants
@@ -196,7 +196,7 @@ export class AdminService {
         and ($3::date is null or s.created_at::date <= $3)
       group by s.voter_phone
     ),
-    -- Voter yang sudah daftar (onboarded) — ikut walau belum vote/quest.
+    -- Voter yang sudah daftar (onboarded), ikut walau belum vote/quest.
     -- Hanya relevan saat TIDAK memfilter per peserta ($1 null).
     prof as (
       select pr.phone_number as voter_phone, pr.name as nm, pr.email as em,

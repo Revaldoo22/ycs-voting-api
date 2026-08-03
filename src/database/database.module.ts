@@ -24,7 +24,7 @@ import { ENTITIES } from "./entities";
         // Retry lebih longgar agar tak crash saat boot.
         retryAttempts: 15,
         retryDelay: 4000,
-        // Hari voting mengikuti WIB, bukan zona server — CURRENT_DATE,
+        // Hari voting mengikuti WIB, bukan zona server, CURRENT_DATE,
         // vote_date, dan submit_date semuanya bergantung ini.
         extra: { options: "-c timezone=Asia/Jakarta" },
       }),

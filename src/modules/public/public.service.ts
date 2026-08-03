@@ -3,7 +3,7 @@ import { DataSource } from "typeorm";
 
 /**
  * Public read endpoints. Aggregate SQL is ported 1:1 from the old Supabase
- * RPCs (migration 0022) and returns snake_case rows — the frontend types
+ * RPCs (migration 0022) and returns snake_case rows, the frontend types
  * (src/types/database.ts) are unchanged.
  */
 @Injectable()

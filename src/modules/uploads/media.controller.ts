@@ -17,7 +17,7 @@ import { createHmac, timingSafeEqual } from "crypto";
 import { DepotService } from "./depot.service";
 
 /**
- * /api/media/:fileId — URL permanen milik app untuk file Depot.
+ * /api/media/:fileId, URL permanen milik app untuk file Depot.
  * Tiap akses minta signed URL segar lalu 302 (signed URL short-lived,
  * tidak boleh dipersist / di-cache lama).
  */
@@ -41,7 +41,7 @@ export class MediaController {
   }
 }
 
-/** Penerima webhook Depot (file.ready / file.failed) — HMAC-verified. */
+/** Penerima webhook Depot (file.ready / file.failed), HMAC-verified. */
 @Controller("hooks")
 export class DepotHooksController {
   constructor(private readonly config: ConfigService) {}
@@ -66,7 +66,7 @@ export class DepotHooksController {
       throw new UnauthorizedException();
     }
 
-    // Saat ini cukup dicatat — /api/media fallback ke original bila varian
+    // Saat ini cukup dicatat, /api/media fallback ke original bila varian
     // belum siap, jadi tidak ada state yang wajib diubah. Titik sambung
     // untuk notifikasi/penandaan di masa depan.
      

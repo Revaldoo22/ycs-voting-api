@@ -64,7 +64,7 @@ export class AuthController {
       const { token, redirect } = await this.auth.googleLogin(gUser);
       res.cookie(AUTH_COOKIE, token, COOKIE_OPTS);
       // Wizard tetap prioritas; setelah itu hormati next (path internal saja
-      // — cegah open redirect). Saat wizard, next dibawa sebagai query agar
+      //, cegah open redirect). Saat wizard, next dibawa sebagai query agar
       // selesai onboarding user kembali ke halaman asalnya.
       const next =
         state && state.startsWith("/") && !state.startsWith("//")
@@ -94,7 +94,7 @@ export class AuthController {
     return rest;
   }
 
-  /** Edit akun voter (password/sekolah/dll — bukan WA/foto). */
+  /** Edit akun voter (password/sekolah/dll, bukan WA/foto). */
   @Patch("profile")
   @UseGuards(JwtGuard)
   updateProfile(

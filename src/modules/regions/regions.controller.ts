@@ -21,7 +21,7 @@ import { RolesGuard } from "../../common/guards/roles.guard";
 import { Roles } from "../../common/decorators/roles.decorator";
 
 class RegionQuery {
-  /** province | regency | district — default province. */
+  /** province | regency | district, default province. */
   @IsOptional()
   @IsString()
   level?: string;
@@ -116,7 +116,7 @@ export class RegionsController {
   async remove(@Param("id", ParseUUIDPipe) id: string) {
     const region = await this.regions.findOneBy({ id });
     if (!region) throw new NotFoundException("Kabupaten tidak ditemukan.");
-    // Hanya region manual (kode sintetis) yang boleh dihapus — data master
+    // Hanya region manual (kode sintetis) yang boleh dihapus, data master
     // dari CSV dilindungi agar peta wilayah tak rusak.
     if (!region.code.startsWith("MAN-")) {
       throw new BadRequestException(

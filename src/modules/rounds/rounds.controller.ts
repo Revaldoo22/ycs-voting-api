@@ -248,7 +248,7 @@ export class PublicRoundsController {
     return this.rounds.publicList();
   }
 
-  /** Klasemen/hasil satu gelombang — publik (live saat aktif, final saat tutup). */
+  /** Klasemen/hasil satu gelombang, publik (live saat aktif, final saat tutup). */
   @Get("rounds/:id/results")
   results(@Param("id", ParseUUIDPipe) id: string) {
     return this.rounds.standings(id);

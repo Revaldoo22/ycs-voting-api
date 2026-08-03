@@ -406,7 +406,7 @@ export class RoundsService {
       } else {
         next = await rr.save(
           rr.create({
-            name: `${round.name} — Lanjutan`,
+            name: `${round.name}, Lanjutan`,
             topN: round.topN,
             selectMode: round.selectMode,
             sequence: round.sequence + 1,
@@ -480,7 +480,7 @@ export class RoundsService {
     const POINTS = 1; // 1 vote = 1 poin (boost sintetis mengikuti aturan baru)
     await this.db.transaction(async (em) => {
       // Bagi N vote acak ke peserta (round-robin dari urutan yang di-shuffle
-      // secara deterministik per index — cukup untuk sebaran boost).
+      // secara deterministik per index, cukup untuk sebaran boost).
       const tally = new Map<string, number>();
       for (let i = 0; i < n; i++) {
         const p = parts[(i * 7 + 3) % parts.length];

@@ -28,7 +28,7 @@ export class Profile {
   @Column({ type: "text", unique: true, nullable: true })
   email!: string | null;
 
-  /** Foto profil dari akun Google — di-refresh tiap login SSO. */
+  /** Foto profil dari akun Google, di-refresh tiap login SSO. */
   @Column({ name: "avatar_url", type: "text", nullable: true })
   avatarUrl!: string | null;
 
@@ -50,7 +50,7 @@ export class Profile {
   @Column({ name: "voter_status", type: "text", nullable: true })
   voterStatus!: string | null;
 
-  /** Kabupaten/kota asal — FK ke regions (sinkron dgn data admin). */
+  /** Kabupaten/kota asal, FK ke regions (sinkron dgn data admin). */
   @Column({ name: "region_id", type: "uuid", nullable: true })
   regionId!: string | null;
 
@@ -69,14 +69,14 @@ export class Profile {
 
   /**
    * Waktu voter mengonfirmasi follow akun IG/TikTok Univ STEKOM & TopLoker
-   * (gerbang KLAIM KUPON undian, sekali seumur event) — TERPISAH dari vote.
+   * (gerbang KLAIM KUPON undian, sekali seumur event), TERPISAH dari vote.
    */
   @Column({ name: "followed_at", type: "timestamptz", nullable: true })
   followedAt!: Date | null;
 
   /**
    * Waktu voter mengonfirmasi follow 2 saluran WhatsApp (UnivSTEKOM & YCS
-   * 2026) — gerbang VOTE pertama (sekali seumur event), terpisah dari
+   * 2026), gerbang VOTE pertama (sekali seumur event), terpisah dari
    * followedAt (yang khusus klaim kupon).
    */
   @Column({ name: "wa_followed_at", type: "timestamptz", nullable: true })

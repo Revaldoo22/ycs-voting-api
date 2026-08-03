@@ -17,7 +17,7 @@ export type VoteStatus = "pending" | "approved";
 export type FollowProofs = string[] | Record<string, string>;
 
 // 1 akun = 1 vote SEUMUR EVENT. Unique index kini GLOBAL per identitas
-// (email/WA/device), bukan lagi per (peserta+tanggal+kind) — sekali satu
+// (email/WA/device), bukan lagi per (peserta+tanggal+kind), sekali satu
 // email/nomor/device dipakai vote, tak bisa dipakai vote lagi ke siapapun.
 @Entity("daily_votes")
 @Index("dv_uniq_device", ["deviceFingerprint"], { unique: true })
@@ -45,7 +45,7 @@ export class DailyVote {
   points!: number;
 
   /**
-   * Vote pertama voter (wajib follow) masuk sebagai 'pending' — poin baru
+   * Vote pertama voter (wajib follow) masuk sebagai 'pending', poin baru
    * dihitung setelah admin approve bukti follow. Reject = baris dihapus
    * (hak vote kembali). Vote lain (peserta/boost) langsung 'approved'.
    */

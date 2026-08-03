@@ -15,7 +15,7 @@ export function serverHashFromRequest(req: Request): string | null {
   return sha(`${ua}|${lang}`);
 }
 
-/** Salted hash of the caller IP — never stores the raw IP. */
+/** Salted hash of the caller IP, never stores the raw IP. */
 export function ipHashFromRequest(req: Request): string | null {
   const fwd = (req.headers["x-forwarded-for"] as string) ?? "";
   const ip = fwd.split(",")[0]?.trim() || req.socket?.remoteAddress || "";

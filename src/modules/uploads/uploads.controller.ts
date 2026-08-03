@@ -52,7 +52,7 @@ export class UploadsController {
     return this.store(file);
   }
 
-  /** Anonymous voter proof upload — rate-limited per IP instead of auth. */
+  /** Anonymous voter proof upload, rate-limited per IP instead of auth. */
   @Post("upload-proof")
   @UseInterceptors(interceptor())
   uploadProof(@Req() req: Request, @UploadedFile() file?: Express.Multer.File) {

@@ -15,7 +15,7 @@ export const MAX_CLAIM_PROOFS = 12;
 /**
  * Klaim kupon undian (follow akun Univ STEKOM/TopLoker), terpisah dari vote.
  * Karena DB_SYNC=false di produksi, tabelnya di-provision idempoten saat boot
- * (gaya raw-SQL codebase ini) — tak perlu migrasi.
+ * (gaya raw-SQL codebase ini), tak perlu migrasi.
  */
 @Injectable()
 export class CouponClaimsService implements OnModuleInit {
@@ -48,7 +48,7 @@ export class CouponClaimsService implements OnModuleInit {
   }
 
   /**
-   * Ajukan klaim kupon (follow + bukti). Peserta YCS tak perlu klaim — sudah
+   * Ajukan klaim kupon (follow + bukti). Peserta YCS tak perlu klaim, sudah
    * dapat kupon otomatis saat vote. Idempoten: klaim yang sudah ada
    * (pending/approved) dikembalikan apa adanya, tak dibuat dobel.
    */
@@ -97,7 +97,7 @@ export class CouponClaimsService implements OnModuleInit {
   /**
    * Terbitkan kupon undian (idempoten) untuk profil yang follow-nya
    * diverifikasi. Return kode kupon (kupon baru ATAU yang sudah ada bila
-   * dipanggil dua kali karena race — tetap satu kode per profil+source).
+   * dipanggil dua kali karena race, tetap satu kode per profil+source).
    */
   async grantCoupon(
     em: import("typeorm").EntityManager,
