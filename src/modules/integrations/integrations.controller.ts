@@ -19,6 +19,7 @@ import {
   IsOptional,
   IsString,
   IsUrl,
+  IsUUID,
   Matches,
   MaxLength,
   MinLength,
@@ -105,6 +106,11 @@ class UpdateParticipantDto {
   @MaxLength(150)
   school_name?: string;
 
+  /** ID kabupaten internal (UUID dari GET /regions) — prioritas di atas region_code. */
+  @IsOptional()
+  @IsUUID()
+  region_id?: string;
+
   @IsOptional()
   @IsString()
   @MaxLength(10)
@@ -165,6 +171,17 @@ class SyncParticipantDto {
   @MaxLength(150)
   school_name?: string;
 
+  /**
+   * ID kabupaten internal sistem ini (UUID dari GET /regions). Dipakai kalau
+   * data kalian tidak punya NPSN — prioritas di atas region_code. NPSN yang
+   * valid/cocok master TETAP menang (wilayah sekolah master dianggap paling
+   * akurat); field ini hanya fallback untuk sekolah tanpa NPSN.
+   */
+  @IsOptional()
+  @IsUUID()
+  region_id?: string;
+
+  /** Kode BPS kabupaten (alternatif region_id) — fallback bila region_id kosong. */
   @IsOptional()
   @IsString()
   @MaxLength(10)
@@ -190,6 +207,11 @@ class UpsertSchoolDto {
   @MinLength(2)
   @MaxLength(150)
   name!: string;
+
+  /** ID kabupaten internal (UUID dari GET /regions) — prioritas di atas region_code. */
+  @IsOptional()
+  @IsUUID()
+  region_id?: string;
 
   @IsOptional()
   @IsString()
@@ -251,13 +273,17 @@ export class IntegrationsController {
   /**
    * Resolusi sekolah untuk sync peserta. Prioritas:
    *   1. `npsn` → cocokkan sekolah master (dari CSV) — region/kabupaten sudah
-   *      terisi otomatis. Paling andal.
-   *   2. `name` → find-or-create by nama; petakan kabupaten via `regionCode`
-   *      kalau dikirim.
+   *      terisi otomatis. Paling andal, selalu menang kalau cocok.
+   *   2. `name` → find-or-create by nama; kalau sekolah belum punya
+   *      kabupaten (mis. tak ada NPSN), petakan dari, berurutan:
+   *        a. `regionId` — ID kabupaten internal (UUID dari GET /regions).
+   *        b. `regionCode` — kode BPS (alternatif regionId).
+   *        c. warisan dari sekolah master yang namanya cocok.
    */
   private async resolveSchool(opts: {
     npsn?: string;
     name?: string;
+    regionId?: string;
     regionCode?: string;
   }) {
     // 1. by NPSN — sekolah master, region sudah ikut. NPSN dinormalisasi
@@ -277,12 +303,17 @@ export class IntegrationsController {
     // Jaring pengaman region kalau sekolah (baru/lama) belum punya region:
     if (!school.regionId) {
       let regionId: string | null = null;
-      // a. dari regionCode (kode BPS) bila dikirim.
-      if (opts.regionCode) {
+      // a. dari regionId (UUID kabupaten internal) bila dikirim — dicek ada.
+      if (opts.regionId) {
+        const region = await this.regions.findOneBy({ id: opts.regionId });
+        regionId = region?.id ?? null;
+      }
+      // b. dari regionCode (kode BPS) bila regionId tak dikirim/tak cocok.
+      if (!regionId && opts.regionCode) {
         const region = await this.regions.findOneBy({ code: opts.regionCode });
         regionId = region?.id ?? null;
       }
-      // b. warisi region dari sekolah master yang namanya cocok (NPSN salah/
+      // c. warisi region dari sekolah master yang namanya cocok (NPSN salah/
       //    kosong tapi nama ada di master) — supaya kabupaten tetap terisi.
       if (!regionId) {
         const rows = (await this.db.query(
@@ -320,6 +351,7 @@ export class IntegrationsController {
     const school = await this.resolveSchool({
       npsn: dto.npsn,
       name: dto.school_name,
+      regionId: dto.region_id,
       regionCode: dto.region_code,
     });
 
@@ -767,7 +799,11 @@ export class IntegrationsController {
 
     // Sekolah (find-or-create + petakan kabupaten).
     if (dto.school_name !== undefined) {
-      const school = await this.resolveSchool({ name: dto.school_name, regionCode: dto.region_code });
+      const school = await this.resolveSchool({
+        name: dto.school_name,
+        regionId: dto.region_id,
+        regionCode: dto.region_code,
+      });
       participant.schoolId = school?.id ?? null;
       if (profile) profile.schoolId = school?.id ?? null;
     }
@@ -792,10 +828,14 @@ export class IntegrationsController {
     return this.regions.find({ order: { name: "ASC" } });
   }
 
-  /** Upsert sekolah by nama (case-insensitive) + set kabupaten via kode BPS. */
+  /** Upsert sekolah by nama (case-insensitive) + set kabupaten via ID/kode BPS. */
   @Post("schools")
   async upsertSchool(@Body() dto: UpsertSchoolDto) {
-    const school = await this.resolveSchool({ name: dto.name, regionCode: dto.region_code });
+    const school = await this.resolveSchool({
+      name: dto.name,
+      regionId: dto.region_id,
+      regionCode: dto.region_code,
+    });
     return { ok: true, school };
   }
 
