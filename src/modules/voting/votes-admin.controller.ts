@@ -21,12 +21,7 @@ import {
   MaxLength,
 } from "class-validator";
 import { DataSource, EntityManager } from "typeorm";
-import {
-  Coupon,
-  DailyVote,
-  Participant,
-  Profile,
-} from "../../database/entities";
+import { DailyVote, Participant, Profile } from "../../database/entities";
 import { JwtGuard } from "../../common/guards/jwt.guard";
 import { RolesGuard } from "../../common/guards/roles.guard";
 import { Roles } from "../../common/decorators/roles.decorator";
@@ -60,9 +55,11 @@ class BulkReviewVoteDto {
 }
 
 /**
- * Review vote pertama voter (bukti follow per tugas). Approve = poin masuk
- * ke peserta + voter dapat kupon undian. Reject = baris vote DIHAPUS agar
- * hak vote voter kembali (bisa vote ulang dengan bukti yang benar).
+ * Review vote pertama voter (bukti follow 2 saluran WhatsApp). Approve =
+ * poin masuk ke peserta + voter ditandai follow-WA terverifikasi (TIDAK
+ * menerbitkan kupon — kupon undian HP adalah klaim terpisah, lihat
+ * CouponClaimsAdminController). Reject = baris vote DIHAPUS agar hak vote
+ * voter kembali (bisa vote ulang dengan bukti yang benar).
  */
 @Controller("admin/votes")
 @UseGuards(JwtGuard, RolesGuard)
@@ -192,7 +189,8 @@ export class VotesAdminController {
         .getRepository(Participant)
         .increment({ id: vote.participantId }, "totalPoints", vote.points);
 
-      // Tandai follow terverifikasi + terbitkan kupon undian voter.
+      // Tandai follow-WA terverifikasi (bukan followedAt — field itu khusus
+      // klaim kupon IG/TikTok, terpisah dari vote). Tidak menerbitkan kupon.
       if (vote.voterEmail) {
         const profile = await em
           .getRepository(Profile)
@@ -202,28 +200,25 @@ export class VotesAdminController {
         if (profile) {
           await em.getRepository(Profile).update(
             { id: profile.id },
-            {
-              followedAt: profile.followedAt ?? new Date(),
-              followProofUrl:
-                profile.followProofUrl ??
-                Object.values(vote.followProofs ?? {})[0] ??
-                null,
-            },
+            { waFollowedAt: profile.waFollowedAt ?? new Date() },
           );
-          const code =
-            "YCS-" +
-            Array.from({ length: 2 }, () =>
-              Math.random().toString(36).slice(2, 6).toUpperCase(),
-            ).join("-");
-          await em
-            .getRepository(Coupon)
-            .createQueryBuilder()
-            .insert()
-            .values({ profileId: profile.id, code, source: "follow" })
-            .orIgnore() // unique (profile, source): idempoten
-            .execute();
         }
       }
+
+      const participant = await em
+        .getRepository(Participant)
+        .findOne({ where: { id: vote.participantId }, select: ["name"] });
+      await this.notifications.notifyByVoter(
+        em,
+        { email: vote.voterEmail, phone: vote.voterPhone },
+        {
+          type: "vote_approved",
+          title: "Vote kamu disetujui",
+          body:
+            `Vote kamu untuk ${participant?.name ?? "peserta"} sudah disetujui,` +
+            " poin sudah masuk. Terima kasih sudah mendukung!",
+        },
+      );
       return { ok: true };
   }
 }

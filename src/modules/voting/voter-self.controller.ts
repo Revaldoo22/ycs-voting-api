@@ -1,8 +1,11 @@
-import { Body, Controller, Get, Patch, UseGuards } from "@nestjs/common";
+import { Body, Controller, Get, Patch, Post, UseGuards } from "@nestjs/common";
 import { IsArray, IsOptional, IsUUID } from "class-validator";
 import { DataSource } from "typeorm";
 import { JwtGuard, JwtPayload } from "../../common/guards/jwt.guard";
 import { CurrentUser } from "../../common/decorators/current-user.decorator";
+import { CouponClaimsService } from "./coupon-claims.service";
+import { ClaimCouponDto } from "./dto/voter-info.dto";
+import { mapError } from "./voting.controller";
 
 class MarkReadDto {
   /** ID notifikasi yang ditandai dibaca. Kosong = tandai semua. */
@@ -16,7 +19,10 @@ class MarkReadDto {
 @Controller("voter")
 @UseGuards(JwtGuard)
 export class VoterSelfController {
-  constructor(private readonly db: DataSource) {}
+  constructor(
+    private readonly db: DataSource,
+    private readonly couponClaims: CouponClaimsService,
+  ) {}
 
   @Get("today")
   async today(@CurrentUser() user: JwtPayload) {
@@ -83,6 +89,25 @@ export class VoterSelfController {
        order by c.created_at desc`,
       [user.sub],
     );
+  }
+
+  /** Status klaim kupon undian voter ini (null bila belum pernah klaim). */
+  @Get("coupon-claim")
+  async couponClaim(@CurrentUser() user: JwtPayload) {
+    return this.couponClaims.myClaim(user.sub);
+  }
+
+  /** Ajukan klaim kupon undian (follow + bukti), terpisah dari vote. */
+  @Post("coupon-claim")
+  async submitCouponClaim(
+    @Body() dto: ClaimCouponDto,
+    @CurrentUser() user: JwtPayload,
+  ) {
+    try {
+      return await this.couponClaims.claim(user.sub, dto.proofs);
+    } catch (err) {
+      mapError(err);
+    }
   }
 
   /**

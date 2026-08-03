@@ -21,7 +21,7 @@ export class VoteError extends ConflictException {
   }
 }
 
-/** Batas jumlah screenshot bukti follow per vote. */
+/** Batas jumlah screenshot bukti follow WA per vote. */
 export const MAX_FOLLOW_PROOFS = 12;
 
 @Injectable()
@@ -167,31 +167,23 @@ export class VotesService {
 
     // Tidak ada batasan by device/IP — dedup murni by email/WA di atas.
 
-    // Gate follow + kupon undian.
-    //  - Voter biasa: wajib follow akun Univ STEKOM (bukti per tugas: IG &
-    //    TikTok). Vote masuk sebagai PENDING — poin & kupon baru diberikan
-    //    setelah admin approve buktinya.
-    //  - PESERTA YCS: vote langsung tanpa follow, TAPI tetap dapat kupon.
+    // Gate follow WA (2 saluran: UnivSTEKOM & YCS 2026) sebelum vote pertama.
+    //  - Voter biasa: wajib follow 2 saluran WA, upload bukti. Vote masuk
+    //    sebagai PENDING — poin baru diberikan setelah admin approve.
+    //  - PESERTA YCS: vote langsung tanpa follow WA, TAPI tetap dapat kupon.
+    // Kupon undian (hadiah HP) TIDAK terkait follow WA — itu klaim terpisah
+    // (follow IG/TikTok) lewat CouponClaimsService setelah vote sukses.
     const profile = identity.profile;
-    let grantCoupon = false;
+    const grantCoupon = identity.isParticipant;
     let needsReview = false;
     let followProofs: FollowProofs | null = null;
-    if (identity.isParticipant) {
-      // Peserta: vote tanpa follow, tetap dapat kupon. Insert kupon idempoten
-      // (unique per profile+source), jadi aman walau followedAt sudah ter-set.
-      grantCoupon = true;
-    } else if (profile && !profile.followedAt) {
+    if (!identity.isParticipant && profile && !profile.waFollowedAt) {
       if (!d.follow_confirmed) throw new VoteError("FOLLOW_REQUIRED");
-      // Screenshot bukti follow: array URL (bebas, boleh banyak sekaligus).
-      // Kontrak lama (object per tugas / follow_proof_*) tetap diterima.
+      // Screenshot bukti follow WA: array URL (bebas, boleh banyak sekaligus).
+      // Kontrak lama (object per tugas) tetap diterima.
       const rawList: unknown[] = Array.isArray(d.follow_proofs)
         ? d.follow_proofs
-        : [
-            ...Object.values(d.follow_proofs ?? {}),
-            d.follow_proof_ig,
-            d.follow_proof_tiktok,
-            d.follow_proof_url,
-          ];
+        : Object.values(d.follow_proofs ?? {});
       const urls = [
         ...new Set(
           rawList.filter(
@@ -227,7 +219,7 @@ export class VotesService {
           // device/server/ip tidak dipakai lagi untuk anti-cheat.
           voteKind: kind,
           points,
-          // Perlu review bukti follow → pending; poin ditahan sampai approve.
+          // Perlu review bukti follow WA → pending; poin ditahan sampai approve.
           status: needsReview ? "pending" : "approved",
           followProofs,
           voterName: name.trim(),
@@ -243,16 +235,9 @@ export class VotesService {
             .increment({ id: d.participant_id }, "totalPoints", points);
         }
 
-        // Terbitkan kupon undian (sekali). Peserta: langsung tanpa follow.
-        // Voter biasa: kupon + followedAt diberikan saat admin APPROVE.
+        // Kupon undian instan hanya untuk peserta YCS (tanpa follow). Voter
+        // biasa klaim kuponnya terpisah lewat CouponClaimsService (IG/TikTok).
         if (grantCoupon && profile) {
-          await em.getRepository(Profile).update(
-            { id: profile.id },
-            {
-              followedAt: new Date(),
-              followProofUrl: d.follow_proof_url ?? null,
-            },
-          );
           const code =
             "YCS-" +
             Array.from({ length: 2 }, () =>
@@ -265,7 +250,7 @@ export class VotesService {
             .values({
               profileId: profile.id,
               code,
-              source: identity.isParticipant ? "peserta" : "follow",
+              source: "peserta",
             })
             .orIgnore() // unique (profile, source): idempoten saat race
             .execute();

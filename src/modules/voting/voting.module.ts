@@ -1,6 +1,8 @@
 import { Module } from "@nestjs/common";
 import { TypeOrmModule } from "@nestjs/typeorm";
 import {
+  Coupon,
+  CouponClaim,
   DailyVote,
   Participant,
   ParticipantContent,
@@ -16,13 +18,17 @@ import { AntiCheatService } from "./anti-cheat.service";
 import { VotesService } from "./votes.service";
 import { SubmissionsService } from "./submissions.service";
 import { NotificationsService } from "./notifications.service";
+import { CouponClaimsService } from "./coupon-claims.service";
 import { VotingController } from "./voting.controller";
 import { VoterSelfController } from "./voter-self.controller";
 import { VotesAdminController } from "./votes-admin.controller";
+import { CouponClaimsAdminController } from "./coupon-claims-admin.controller";
 
 @Module({
   imports: [
     TypeOrmModule.forFeature([
+      Coupon,
+      CouponClaim,
       DailyVote,
       Participant,
       Profile,
@@ -35,12 +41,18 @@ import { VotesAdminController } from "./votes-admin.controller";
     RoundsModule,
     AuthModule,
   ],
-  controllers: [VotingController, VoterSelfController, VotesAdminController],
+  controllers: [
+    VotingController,
+    VoterSelfController,
+    VotesAdminController,
+    CouponClaimsAdminController,
+  ],
   providers: [
     AntiCheatService,
     VotesService,
     SubmissionsService,
     NotificationsService,
+    CouponClaimsService,
   ],
   exports: [AntiCheatService],
 })

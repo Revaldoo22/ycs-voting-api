@@ -188,6 +188,7 @@ export class AuthService {
       college_intent: user.collegeIntent,
       onboarded: user.onboarded,
       followed: !!user.followedAt,
+      wa_followed: !!user.waFollowedAt,
     };
   }
 

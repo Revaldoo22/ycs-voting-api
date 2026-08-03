@@ -20,6 +20,10 @@ export { ParticipantContent } from "./participant-content.entity";
 export { AppSettings } from "./app-settings.entity";
 export { Region } from "./region.entity";
 export { Coupon } from "./coupon.entity";
+export {
+  CouponClaim,
+  type CouponClaimStatus,
+} from "./coupon-claim.entity";
 export { Notification, type NotificationType } from "./notification.entity";
 export {
   Round,
@@ -39,6 +43,7 @@ import { ParticipantContent } from "./participant-content.entity";
 import { AppSettings } from "./app-settings.entity";
 import { Region } from "./region.entity";
 import { Coupon } from "./coupon.entity";
+import { CouponClaim } from "./coupon-claim.entity";
 import { Notification } from "./notification.entity";
 import { Round, RoundSchool } from "./round.entity";
 
@@ -55,6 +60,7 @@ export const ENTITIES = [
   AppSettings,
   Region,
   Coupon,
+  CouponClaim,
   Notification,
   Round,
   RoundSchool,

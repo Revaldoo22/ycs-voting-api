@@ -67,9 +67,20 @@ export class Profile {
   @Column({ name: "stekom_source", type: "text", nullable: true })
   stekomSource!: string | null;
 
-  /** Waktu voter mengonfirmasi follow akun Univ STEKOM (sekali seumur event). */
+  /**
+   * Waktu voter mengonfirmasi follow akun IG/TikTok Univ STEKOM & TopLoker
+   * (gerbang KLAIM KUPON undian, sekali seumur event) — TERPISAH dari vote.
+   */
   @Column({ name: "followed_at", type: "timestamptz", nullable: true })
   followedAt!: Date | null;
+
+  /**
+   * Waktu voter mengonfirmasi follow 2 saluran WhatsApp (UnivSTEKOM & YCS
+   * 2026) — gerbang VOTE pertama (sekali seumur event), terpisah dari
+   * followedAt (yang khusus klaim kupon).
+   */
+  @Column({ name: "wa_followed_at", type: "timestamptz", nullable: true })
+  waFollowedAt!: Date | null;
 
   /** Screenshot bukti follow (diverifikasi manual saat undian). */
   @Column({ name: "follow_proof_url", type: "text", nullable: true })

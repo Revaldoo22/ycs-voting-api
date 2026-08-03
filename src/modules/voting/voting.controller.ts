@@ -1,5 +1,6 @@
 import {
   Body,
+  ConflictException,
   Controller,
   HttpException,
   Post,
@@ -27,12 +28,19 @@ const MESSAGES: Record<string, [string, number]> = {
     409,
   ],
   ALREADYVOTED: ["Kamu sudah menggunakan hak vote-mu. Satu akun hanya bisa vote sekali.", 409],
-  FOLLOW_REQUIRED: ["Follow akun Universitas STEKOM dulu untuk vote pertamamu.", 409],
+  FOLLOW_REQUIRED: ["Follow 2 saluran WhatsApp dulu untuk vote pertamamu.", 409],
   FOLLOW_PROOF_REQUIRED: [
-    "Upload screenshot bukti tugas follow dulu (minimal 1 file).",
+    "Upload screenshot bukti follow saluran WhatsApp dulu (minimal 1 file).",
     400,
   ],
   FOLLOW_PROOF_TOOMANY: ["Maksimal 12 screenshot bukti follow.", 400],
+  ALREADY_FOLLOWED: ["Kamu sudah follow terverifikasi, tidak perlu klaim lagi.", 409],
+  CLAIM_EXISTS: ["Kamu sudah pernah mengajukan klaim kupon.", 409],
+  CLAIM_PROOF_REQUIRED: [
+    "Upload screenshot bukti follow dulu (minimal 1 file).",
+    400,
+  ],
+  CLAIM_PROOF_TOOMANY: ["Maksimal 12 screenshot bukti follow.", 400],
   IPLIMIT: ["Batas vote harian dari jaringan ini tercapai.", 409],
   MISSINGDATA: ["Data tidak lengkap.", 400],
   TOOMANY: ["Maksimal 5 bukti per pengiriman.", 400],
@@ -50,9 +58,12 @@ const MESSAGES: Record<string, [string, number]> = {
   ],
 };
 
-function mapError(err: unknown): never {
-  if (err instanceof VoteError) {
-    const hit = MESSAGES[err.code];
+/** Dipakai juga oleh controller lain (mis. klaim kupon) yang error code-nya
+ *  tumpang tindih dengan tabel MESSAGES di atas. */
+export function mapError(err: unknown): never {
+  if (err instanceof VoteError || err instanceof ConflictException) {
+    const code = (err as { code?: string }).code;
+    const hit = code ? MESSAGES[code] : undefined;
     if (hit) throw new HttpException({ error: hit[0] }, hit[1]);
   }
   throw err;

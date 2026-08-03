@@ -56,31 +56,22 @@ export class CastVoteDto extends VoterInfoDto {
   @IsString()
   fingerprint?: string;
 
-  /** Voter menyatakan sudah follow akun Univ STEKOM (gate vote pertama). */
+  /** Voter menyatakan sudah follow 2 saluran WhatsApp (gate vote pertama). */
   @IsOptional()
   follow_confirmed?: boolean;
 
-  /** Screenshot bukti follow (kontrak lama — masih diterima). */
-  @IsOptional()
-  @IsUrl({ require_tld: false }, { message: "Bukti follow tidak valid" })
-  follow_proof_url?: string;
-
-  /** Bukti follow per tugas: screenshot follow Instagram Univ STEKOM. */
-  @IsOptional()
-  @IsUrl({ require_tld: false }, { message: "Bukti follow IG tidak valid" })
-  follow_proof_ig?: string;
-
-  /** Bukti follow per tugas: screenshot follow TikTok Univ STEKOM. */
-  @IsOptional()
-  @IsUrl({ require_tld: false }, { message: "Bukti follow TikTok tidak valid" })
-  follow_proof_tiktok?: string;
-
-  /**
-   * Screenshot bukti follow: array URL (kontrak baru) atau object key
-   * tugas → URL (kontrak lama). Isi divalidasi di service.
-   */
+  /** Screenshot bukti follow saluran WhatsApp (array URL, boleh banyak). */
   @IsOptional()
   follow_proofs?: string[] | Record<string, string>;
+}
+
+/** Klaim kupon undian (follow akun Univ STEKOM/TopLoker), terpisah dari vote. */
+export class ClaimCouponDto {
+  @IsArray()
+  @ArrayMinSize(1, { message: "Lampirkan minimal 1 bukti follow" })
+  @ArrayMaxSize(12, { message: "Maksimal 12 bukti follow" })
+  @IsUrl({ require_tld: false }, { each: true, message: "Bukti follow tidak valid" })
+  proofs!: string[];
 }
 
 export class CreateSubmissionDto extends VoterInfoDto {
