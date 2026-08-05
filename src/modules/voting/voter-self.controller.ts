@@ -79,11 +79,11 @@ export class VoterSelfController {
     return { ok: true };
   }
 
-  /** Kupon undian milik voter (dari follow). */
+  /** Kupon undian milik voter (dari follow), termasuk status menang undian. */
   @Get("coupons")
   coupons(@CurrentUser() user: JwtPayload) {
     return this.db.query(
-      `select c.code, c.source, c.created_at, pr.name as owner_name
+      `select c.code, c.source, c.created_at, c.won_at, c.prize, pr.name as owner_name
        from coupons c join profiles pr on pr.id = c.profile_id
        where c.profile_id = $1
        order by c.created_at desc`,

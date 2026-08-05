@@ -66,7 +66,7 @@ export class RaffleController {
          for update skip locked
        ) pick
        where c.id = pick.id
-       returning c.code, c.prize, c.won_at,
+       returning c.code, c.prize, c.won_at, c.profile_id,
          (select name from profiles p where p.id = c.profile_id) as name,
          (select phone_number from profiles p where p.id = c.profile_id) as phone_number,
          (select email from profiles p where p.id = c.profile_id) as email`,
@@ -74,10 +74,22 @@ export class RaffleController {
     );
     // UPDATE ... RETURNING lewat TypeORM: [records, affectedCount]
     const records = Array.isArray(rows[0]) ? rows[0] : rows;
-    if (!records[0]) {
+    const winner = records[0];
+    if (!winner) {
       throw new NotFoundException("Tidak ada kupon tersisa untuk diundi.");
     }
-    return { winner: records[0] };
+
+    await this.db.query(
+      `insert into notifications (profile_id, type, title, body)
+       values ($1, 'coupon_won', $2, $3)`,
+      [
+        winner.profile_id,
+        "Selamat, kamu menang undian!",
+        `Kupon undianmu (${winner.code}) terpilih sebagai pemenang: ${winner.prize}. Cek di menu Kupon Saya.`,
+      ],
+    );
+
+    return { winner };
   }
 
   /** Batalkan kemenangan (salah undi) - kupon kembali ke kolam. */
