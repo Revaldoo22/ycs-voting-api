@@ -78,18 +78,43 @@ export class RaffleController {
     if (!winner) {
       throw new NotFoundException("Tidak ada kupon tersisa untuk diundi.");
     }
+    // Notifikasi TIDAK dikirim di sini: mode slot mengungkap kode digit demi
+    // digit dan bisa dibatalkan di tengah jalan. Frontend memanggil
+    // POST confirm/:code setelah pemenang benar-benar diumumkan.
+    return { winner };
+  }
+
+  /**
+   * Kunci pemenang sebagai final: kirim notifikasi ke voter. Dipanggil setelah
+   * pemenang diumumkan di panggung (semua digit terungkap / undi cepat).
+   * Idempoten: notifikasi tidak digandakan bila dipanggil dua kali.
+   */
+  @Post("confirm/:code")
+  async confirm(@Param("code") code: string) {
+    const rows = await this.db.query(
+      `select c.code, c.prize, c.profile_id
+       from coupons c
+       where c.code = $1 and c.won_at is not null`,
+      [code],
+    );
+    const winner = rows[0];
+    if (!winner) throw new NotFoundException("Pemenang tidak ditemukan.");
 
     await this.db.query(
       `insert into notifications (profile_id, type, title, body)
-       values ($1, 'coupon_won', $2, $3)`,
+       select $1, 'coupon_won', $2, $3
+       where not exists (
+         select 1 from notifications
+         where profile_id = $1 and type = 'coupon_won' and body like $4
+       )`,
       [
         winner.profile_id,
         "Selamat, kamu menang undian!",
         `Kupon undianmu (${winner.code}) terpilih sebagai pemenang: ${winner.prize}. Cek di menu Kupon Saya.`,
+        `%${winner.code}%`,
       ],
     );
-
-    return { winner };
+    return { ok: true };
   }
 
   /** Batalkan kemenangan (salah undi) - kupon kembali ke kolam. */
@@ -97,11 +122,22 @@ export class RaffleController {
   async cancel(@Param("code") code: string) {
     const res = await this.db.query(
       `update coupons set won_at = null, prize = null
-       where code = $1 and won_at is not null returning code`,
+       where code = $1 and won_at is not null
+       returning code, profile_id`,
       [code],
     );
     const records = Array.isArray(res[0]) ? res[0] : res;
-    if (!records[0]) throw new NotFoundException("Pemenang tidak ditemukan.");
+    const row = records[0];
+    if (!row) throw new NotFoundException("Pemenang tidak ditemukan.");
+
+    // Notifikasi "kamu menang" sudah terkirim saat draw; hapus supaya voter
+    // tidak menyimpan kabar menang yang ternyata dibatalkan.
+    await this.db.query(
+      `delete from notifications
+       where profile_id = $1 and type = 'coupon_won' and body like $2`,
+      [row.profile_id, `%${code}%`],
+    );
+
     return { ok: true };
   }
 }
