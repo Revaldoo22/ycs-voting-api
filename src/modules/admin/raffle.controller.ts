@@ -142,4 +142,15 @@ export class RaffleController {
 
     return { ok: true };
   }
+
+  /** Update hadiah pemenang setelah putaran Spin Wheel. */
+  @Post("winners/:code/prize")
+  async updatePrize(@Param("code") code: string, @Body("prize") prize: string) {
+    if (!prize) throw new NotFoundException("Hadiah tidak valid.");
+    await this.db.query(
+      `update coupons set prize = $1 where code = $2 and won_at is not null`,
+      [prize.trim(), code],
+    );
+    return { ok: true };
+  }
 }

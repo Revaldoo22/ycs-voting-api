@@ -25,6 +25,7 @@ export class SettingsService {
       event_open: s.eventOpen,
       closed_message: s.closedMessage,
       ip_daily_limit: s.ipDailyLimit,
+      spin_wheel_mode: s.spinWheelMode ?? "ALWAYS_TUMBLER",
       updated_at: s.updatedAt,
     };
   }
@@ -37,11 +38,13 @@ export class SettingsService {
     event_open?: boolean;
     closed_message?: string;
     ip_daily_limit?: number;
+    spin_wheel_mode?: string;
   }) {
     const s = await this.get();
     if (patch.event_open !== undefined) s.eventOpen = patch.event_open;
     if (patch.closed_message !== undefined) s.closedMessage = patch.closed_message;
     if (patch.ip_daily_limit !== undefined) s.ipDailyLimit = patch.ip_daily_limit;
+    if (patch.spin_wheel_mode !== undefined) s.spinWheelMode = patch.spin_wheel_mode;
     await this.settings.save(s);
     return { ok: true };
   }

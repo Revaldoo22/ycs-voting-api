@@ -15,6 +15,9 @@ export class AppSettings {
   @Column({ name: "ip_daily_limit", type: "int", default: 5 })
   ipDailyLimit!: number;
 
+  @Column({ name: "spin_wheel_mode", type: "varchar", default: "ALWAYS_TUMBLER" })
+  spinWheelMode!: string;
+
   @UpdateDateColumn({ name: "updated_at", type: "timestamptz" })
   updatedAt!: Date;
 }
