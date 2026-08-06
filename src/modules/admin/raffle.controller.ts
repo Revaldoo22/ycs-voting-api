@@ -130,8 +130,10 @@ export class RaffleController {
     const row = records[0];
     if (!row) throw new NotFoundException("Pemenang tidak ditemukan.");
 
-    // Notifikasi "kamu menang" sudah terkirim saat draw; hapus supaya voter
-    // tidak menyimpan kabar menang yang ternyata dibatalkan.
+    // Kalau pemenang sudah pernah diumumkan (confirm dipanggil), notifikasi
+    // "kamu menang" sudah ada di akun voter. Hapus supaya voter tidak
+    // menyimpan kabar menang yang ternyata dibatalkan. Tidak ada notifikasi
+    // untuk pembatalan di tengah undian slot, jadi query ini no-op di situ.
     await this.db.query(
       `delete from notifications
        where profile_id = $1 and type = 'coupon_won' and body like $2`,
