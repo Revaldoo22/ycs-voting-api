@@ -70,8 +70,14 @@ export class CouponClaimsAdminController {
     private readonly couponClaims: CouponClaimsService,
   ) {}
 
+  /**
+   * Daftar klaim untuk direview. Pencarian dilakukan di SQL (bukan filter di
+   * browser) karena hasilnya dibatasi 500 baris: tanpa ini, voter di luar 500
+   * terbaru tak akan pernah ketemu walau namanya diketik di kotak cari.
+   */
   @Get()
-  list(@Query("status") status?: string) {
+  list(@Query("status") status?: string, @Query("search") search?: string) {
+    const q = search?.trim() || null;
     return this.db.query(
       `select cc.id, cc.status, cc.proofs, cc.created_at, cc.reviewed_at,
               pr.id as profile_id, pr.name as voter_name, pr.email as voter_email,
@@ -79,9 +85,14 @@ export class CouponClaimsAdminController {
        from coupon_claims cc
        join profiles pr on pr.id = cc.profile_id
        where ($1::text is null or cc.status = $1)
+         and ($2::text is null or (
+              pr.name ilike '%' || $2 || '%'
+           or pr.email ilike '%' || $2 || '%'
+           or pr.phone_number ilike '%' || $2 || '%'
+         ))
        order by cc.created_at desc
        limit 500`,
-      [status || null],
+      [status || null, q],
     );
   }
 

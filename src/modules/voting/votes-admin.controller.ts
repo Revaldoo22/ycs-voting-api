@@ -70,8 +70,14 @@ export class VotesAdminController {
     private readonly notifications: NotificationsService,
   ) {}
 
+  /**
+   * Daftar vote untuk direview. Pencarian dilakukan di SQL (bukan filter di
+   * browser) karena hasilnya dibatasi 500 baris: tanpa ini, voter di luar 500
+   * terbaru tak akan pernah ketemu walau namanya diketik di kotak cari.
+   */
   @Get()
-  list(@Query("status") status?: string) {
+  list(@Query("status") status?: string, @Query("search") search?: string) {
+    const q = search?.trim() || null;
     return this.db.query(
       `select dv.id, dv.status, dv.points, dv.created_at,
               dv.voter_name, dv.voter_phone, dv.voter_email,
@@ -88,9 +94,17 @@ export class VotesAdminController {
        where dv.is_bot = false
          and dv.follow_proofs is not null
          and ($1::text is null or dv.status = $1)
+         and ($2::text is null or (
+              dv.voter_name ilike '%' || $2 || '%'
+           or dv.voter_email ilike '%' || $2 || '%'
+           or dv.voter_phone ilike '%' || $2 || '%'
+           or dv.voter_school ilike '%' || $2 || '%'
+           or p.name ilike '%' || $2 || '%'
+           or sch.name ilike '%' || $2 || '%'
+         ))
        order by dv.created_at desc
        limit 500`,
-      [status || null],
+      [status || null, q],
     );
   }
 
