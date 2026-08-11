@@ -6,6 +6,7 @@ import {
   NotFoundException,
   Param,
   Post,
+  Query,
   UseGuards,
 } from "@nestjs/common";
 import { IsOptional, IsString, MaxLength } from "class-validator";
@@ -42,6 +43,50 @@ export class RaffleController {
       where c.won_at is not null
       order by c.won_at desc`);
     return { ...stats[0], winners };
+  }
+
+  /**
+   * Daftar kupon + pemiliknya + status undian. Pencarian di SQL (bukan filter
+   * di browser) karena hasil dibatasi 500 baris: tanpa ini, kupon di luar 500
+   * terbaru tak akan pernah ketemu walau kodenya diketik di kotak cari.
+   *
+   * status: "pending" = belum diundi, "won" = sudah menang, kosong = semua.
+   */
+  @Get("coupons")
+  coupons(@Query("status") status?: string, @Query("search") search?: string) {
+    const q = search?.trim() || null;
+    const st = status === "pending" || status === "won" ? status : null;
+    return this.db.query(
+      `select c.code, c.source, c.prize, c.won_at, c.created_at,
+              pr.id as profile_id, pr.name as voter_name,
+              pr.email as voter_email, pr.phone_number as voter_phone
+       from coupons c
+       join profiles pr on pr.id = c.profile_id
+       where ($1::text is null or
+              ($1 = 'won' and c.won_at is not null) or
+              ($1 = 'pending' and c.won_at is null))
+         and ($2::text is null or (
+              c.code ilike '%' || $2 || '%'
+           or pr.name ilike '%' || $2 || '%'
+           or pr.email ilike '%' || $2 || '%'
+           or pr.phone_number ilike '%' || $2 || '%'
+         ))
+       order by c.won_at desc nulls last, c.created_at desc
+       limit 500`,
+      [st, q],
+    );
+  }
+
+  /** Jumlah kupon per status (badge tab, tak ikut batas 500 baris). */
+  @Get("coupons/counts")
+  async couponCounts() {
+    const rows = await this.db.query(
+      `select count(*)::int as total,
+              count(*) filter (where won_at is null)::int as pending,
+              count(*) filter (where won_at is not null)::int as won
+       from coupons`,
+    );
+    return rows[0];
   }
 
   /** Sampel nama acak dari kolam (bahan animasi shuffle di mode live). */
