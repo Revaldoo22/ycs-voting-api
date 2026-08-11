@@ -362,10 +362,22 @@ export class AdminService {
       from submissions s
       join quests q on q.id = s.quest_id
       join participants p on p.id = s.participant_id
+      union all
+      -- Undian: pemilik kupon jadi "voter", kode kupon + hadiah mengisi
+      -- kolom peserta. Poin tak berlaku, jadi 0.
+      select 'raffle'::text,
+             re.coupon_code ||
+               coalesce(' - ' || re.prize, '') as source,
+             coalesce(pr.name, 'Voter terhapus'), pr.phone_number,
+             re.coupon_code, null::uuid, 0, re.event_type, re.created_at
+      from raffle_events re
+      left join profiles pr on pr.id = re.profile_id
     ),
     filtered as (
       select * from acts
       where ($1::text = 'all' or kind = $1)
+        -- Undian tak terikat peserta, jadi ikut tersaring keluar saat admin
+        -- memfilter satu peserta tertentu.
         and ($2::uuid is null or participant_id = $2)
         and ($3::date is null or created_at::date >= $3)
         and ($4::date is null or created_at::date <= $4)

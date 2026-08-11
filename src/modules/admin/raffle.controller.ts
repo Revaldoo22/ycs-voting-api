@@ -14,6 +14,7 @@ import { DataSource } from "typeorm";
 import { JwtGuard } from "../../common/guards/jwt.guard";
 import { RolesGuard } from "../../common/guards/roles.guard";
 import { Roles } from "../../common/decorators/roles.decorator";
+import { RaffleEventsService } from "./raffle-events.service";
 
 class DrawDto {
   @IsOptional()
@@ -27,7 +28,10 @@ class DrawDto {
 @UseGuards(JwtGuard, RolesGuard)
 @Roles("admin")
 export class RaffleController {
-  constructor(private readonly db: DataSource) {}
+  constructor(
+    private readonly db: DataSource,
+    private readonly events: RaffleEventsService,
+  ) {}
 
   /** Ringkasan: total kupon, belum diundi, daftar pemenang. */
   @Get()
@@ -126,6 +130,15 @@ export class RaffleController {
     // Notifikasi TIDAK dikirim di sini: mode slot mengungkap kode digit demi
     // digit dan bisa dibatalkan di tengah jalan. Frontend memanggil
     // POST confirm/:code setelah pemenang benar-benar diumumkan.
+    //
+    // Log dicatat di sini (bukan di confirm) supaya undian yang dibatalkan di
+    // tengah jalan tetap meninggalkan jejak di Log Aktivitas.
+    await this.events.record({
+      couponCode: winner.code,
+      profileId: winner.profile_id,
+      eventType: "won",
+      prize: winner.prize,
+    });
     return { winner };
   }
 
@@ -165,6 +178,14 @@ export class RaffleController {
   /** Batalkan kemenangan (salah undi) - kupon kembali ke kolam. */
   @Delete("winners/:code")
   async cancel(@Param("code") code: string) {
+    // Hadiah dibaca dulu: setelah update, prize sudah null dan tak bisa
+    // dicatat di log.
+    const before = await this.db.query(
+      `select prize from coupons where code = $1 and won_at is not null`,
+      [code],
+    );
+    const oldPrize: string | null = before[0]?.prize ?? null;
+
     const res = await this.db.query(
       `update coupons set won_at = null, prize = null
        where code = $1 and won_at is not null
@@ -174,6 +195,13 @@ export class RaffleController {
     const records = Array.isArray(res[0]) ? res[0] : res;
     const row = records[0];
     if (!row) throw new NotFoundException("Pemenang tidak ditemukan.");
+
+    await this.events.record({
+      couponCode: row.code,
+      profileId: row.profile_id,
+      eventType: "cancelled",
+      prize: oldPrize,
+    });
 
     // Kalau pemenang sudah pernah diumumkan (confirm dipanggil), notifikasi
     // "kamu menang" sudah ada di akun voter. Hapus supaya voter tidak
