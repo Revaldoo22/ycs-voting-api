@@ -13,6 +13,26 @@ export interface VoterFilters {
   sort?: "recent" | "points_desc" | "points_asc";
 }
 
+export interface VoteHistoryFilters {
+  participantId?: string;
+  from?: string;
+  to?: string;
+  search?: string;
+  status?: string;
+  voterStatus?: string;
+  school?: string;
+  includeBot?: boolean;
+  /**
+   * `public` = `search` tak menyentuh nomor WA/email voter. Wajib untuk
+   * pemanggil non-admin (web app kedua) supaya kontak voter tak bisa
+   * ditebak lewat pencarian. Default `full` untuk dashboard admin.
+   */
+  searchScope?: "full" | "public";
+  limit?: number;
+  offset?: number;
+  sort?: "recent" | "oldest";
+}
+
 export interface ActivityFilters {
   kind?: string;
   participantId?: string;
@@ -343,6 +363,111 @@ export class AdminService {
   /** Supporters of one participant, admin detail shape (AdminVoter rows). */
   supportersDetail(participantId: string) {
     return this.voters({ participantId, limit: 1000, sort: "points_desc" });
+  }
+
+  /**
+   * Histori vote mentah: SATU BARIS PER VOTE (bukan agregasi per nomor HP
+   * seperti `voters`, dan tanpa campuran quest/undian seperti `activityLog`).
+   * Dipakai halaman detail peserta untuk melihat siapa saja yang vote, jam
+   * berapa, dari sekolah mana.
+   *
+   * Beda dengan `AdminVotesController.list`: di sini vote TANPA follow_proofs
+   * juga ikut, karena tujuannya histori lengkap, bukan antrean review.
+   */
+  private voteHistoryCte = `
+    with rows_all as (
+      select dv.id, dv.created_at, dv.vote_date, dv.vote_kind, dv.points,
+             dv.status, dv.is_bot,
+             dv.follow_proofs is not null as has_proofs,
+             coalesce(dv.voter_name, dv.voter_phone, 'Voter tanpa nama')
+               as voter_name,
+             dv.voter_phone, dv.voter_email, dv.voter_status,
+             -- Sekolah voter: pakai teks yang tersimpan saat vote, kalau
+             -- kosong ambil dari master sekolah lewat profil voter.
+             coalesce(nullif(dv.voter_school, ''), vsch.name) as voter_school,
+             dv.voter_class,
+             dv.participant_id, p.name as participant_name,
+             psch.name as participant_school, reg.name as voter_region
+      from daily_votes dv
+      join participants p on p.id = dv.participant_id
+      left join schools psch on psch.id = p.school_id
+      -- lateral + limit 1: cocokkan profil voter lewat email DULU (identitas
+      -- SSO, paling tepat), baru nomor WA. Tanpa limit 1, satu vote yang
+      -- email & nomornya milik dua profil berbeda akan tampil dobel dan
+      -- menggelembungkan hitungan total.
+      left join lateral (
+        select pr.school_id, pr.region_id
+        from profiles pr
+        where (dv.voter_email is not null
+               and lower(pr.email) = lower(dv.voter_email))
+           or (dv.voter_phone is not null
+               and pr.phone_number = dv.voter_phone)
+        order by (lower(pr.email) = lower(dv.voter_email)) desc nulls last
+        limit 1
+      ) pr on true
+      left join schools vsch on vsch.id = pr.school_id
+      left join regions reg on reg.id = pr.region_id
+    ),
+    filtered as (
+      select * from rows_all
+      where ($1::uuid is null or participant_id = $1)
+        and ($2::date is null or created_at::date >= $2)
+        and ($3::date is null or created_at::date <= $3)
+        -- $9 = 'public': pencarian TIDAK menyentuh kontak voter. Tanpa ini,
+        -- pemanggil bisa menebak nomor WA lewat search lalu membaca total
+        -- untuk memastikan nomor itu vote, walau responnya sudah disamarkan.
+        and ($4::text is null
+              or voter_name ilike '%' || $4 || '%'
+              or voter_school ilike '%' || $4 || '%'
+              or participant_name ilike '%' || $4 || '%'
+              or ($9::text = 'full' and (
+                   voter_phone ilike '%' || $4 || '%'
+                or voter_email ilike '%' || $4 || '%')))
+        and ($5::text is null or status = $5)
+        and ($6::text is null or voter_status = $6)
+        and ($7::text is null or voter_school ilike '%' || $7 || '%')
+        -- Vote boost buatan admin disembunyikan kecuali diminta eksplisit.
+        and ($8::boolean or is_bot = false)
+    )`;
+
+  private voteHistoryArgs(f: VoteHistoryFilters) {
+    return [
+      f.participantId || null,
+      f.from || null,
+      f.to || null,
+      f.search || null,
+      f.status || null,
+      f.voterStatus || null,
+      f.school || null,
+      f.includeBot === true,
+      f.searchScope === "public" ? "public" : "full",
+    ];
+  }
+
+  voteHistory(f: VoteHistoryFilters) {
+    const order = f.sort === "oldest" ? "created_at asc" : "created_at desc";
+    return this.db.query(
+      `${this.voteHistoryCte}
+       select id, created_at, vote_date, vote_kind, points, status, is_bot,
+              has_proofs, voter_name, voter_phone, voter_email, voter_status,
+              voter_school, voter_class, voter_region,
+              participant_id, participant_name, participant_school
+       from filtered order by ${order}
+       limit $10 offset $11`,
+      [
+        ...this.voteHistoryArgs(f),
+        Math.min(f.limit ?? 50, 1000),
+        f.offset ?? 0,
+      ],
+    );
+  }
+
+  async voteHistoryCount(f: VoteHistoryFilters) {
+    const rows = await this.db.query(
+      `${this.voteHistoryCte} select count(*)::int as c from filtered`,
+      this.voteHistoryArgs(f),
+    );
+    return Number(rows[0]?.c ?? 0);
   }
 
   /** Unified activity feed: votes + quest submissions. */

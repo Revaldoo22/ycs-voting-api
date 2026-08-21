@@ -6,7 +6,12 @@ import {
   Query,
   UseGuards,
 } from "@nestjs/common";
-import { AdminService, ActivityFilters, VoterFilters } from "./admin.service";
+import {
+  AdminService,
+  ActivityFilters,
+  VoteHistoryFilters,
+  VoterFilters,
+} from "./admin.service";
 import { JwtGuard } from "../../common/guards/jwt.guard";
 import { RolesGuard } from "../../common/guards/roles.guard";
 import { Roles } from "../../common/decorators/roles.decorator";
@@ -22,6 +27,24 @@ function voterFilters(q: Record<string, string | undefined>): VoterFilters {
     limit: q.limit ? Number(q.limit) : undefined,
     offset: q.offset ? Number(q.offset) : undefined,
     sort: (q.sort as VoterFilters["sort"]) || undefined,
+  };
+}
+
+function voteHistoryFilters(
+  q: Record<string, string | undefined>,
+): VoteHistoryFilters {
+  return {
+    participantId: q.participant_id || undefined,
+    from: q.from || undefined,
+    to: q.to || undefined,
+    search: q.search || undefined,
+    status: q.status || undefined,
+    voterStatus: q.voter_status || undefined,
+    school: q.school || undefined,
+    includeBot: q.include_bot === "true",
+    limit: q.limit ? Number(q.limit) : undefined,
+    offset: q.offset ? Number(q.offset) : undefined,
+    sort: (q.sort as VoteHistoryFilters["sort"]) || undefined,
   };
 }
 
@@ -115,6 +138,21 @@ export class AdminController {
   @Get("activity-log/count")
   activityLogCount(@Query() q: Record<string, string>) {
     return this.admin.activityLogCount(activityFilters(q));
+  }
+
+  /**
+   * Histori vote mentah, satu baris per vote. Filter `participant_id` untuk
+   * histori satu peserta. Paging: `limit`/`offset`, total dari
+   * `vote-history/count` dengan filter yang sama.
+   */
+  @Get("vote-history")
+  voteHistory(@Query() q: Record<string, string>) {
+    return this.admin.voteHistory(voteHistoryFilters(q));
+  }
+
+  @Get("vote-history/count")
+  voteHistoryCount(@Query() q: Record<string, string>) {
+    return this.admin.voteHistoryCount(voteHistoryFilters(q));
   }
 
   @Get("participants/:id/point-log")

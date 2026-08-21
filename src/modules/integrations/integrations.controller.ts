@@ -38,6 +38,7 @@ import {
 import { ApiKeyGuard } from "../../common/guards/api-key.guard";
 import { normalizePhone } from "../../common/utils/normalize";
 import { SchoolsService } from "../schools/schools.service";
+import { AdminService } from "../admin/admin.service";
 
 class UpsertParticipantDto {
   @IsString()
@@ -259,6 +260,7 @@ export class IntegrationsController {
     @InjectRepository(ParticipantContent)
     private readonly contents: Repository<ParticipantContent>,
     private readonly schools: SchoolsService,
+    private readonly admin: AdminService,
   ) {}
 
   private async findByPhone(phone: string) {
@@ -452,6 +454,84 @@ export class IntegrationsController {
     // by-name, tapi email jadi kunci yang unik & tak ambigu.
     const summary = await this.participantSummary(participant.id);
     return { ...summary, participant, contents };
+  }
+
+  /**
+   * Samarkan nomor WA: 4 digit awal + 2 digit akhir. Web kedua dipakai
+   * peserta (bukan panitia), jadi kontak voter tak boleh keluar utuh.
+   */
+  private maskPhone(v: string | null): string | null {
+    if (!v) return null;
+    const d = v.replace(/\s+/g, "");
+    if (d.length <= 6) return "*".repeat(d.length);
+    return `${d.slice(0, 4)}${"*".repeat(d.length - 6)}${d.slice(-2)}`;
+  }
+
+  /** Samarkan email: sisakan 2 huruf awal + domain. */
+  private maskEmail(v: string | null): string | null {
+    if (!v) return null;
+    const at = v.indexOf("@");
+    if (at < 1) return "***";
+    const user = v.slice(0, at);
+    const head = user.slice(0, 2);
+    return `${head}${"*".repeat(Math.max(user.length - 2, 1))}${v.slice(at)}`;
+  }
+
+  /**
+   * Histori voter satu peserta, untuk web kedua menampilkan "siapa saja yang
+   * vote saya": nama, jam, sekolah. SELALU dikunci ke peserta pemilik email
+   * di URL, jadi tak bisa dipakai mengintip voter peserta lain.
+   *
+   * Kontak voter (WA/email) disamarkan dan vote boost admin tak pernah ikut.
+   */
+  @Get("participants/by-email/:email/voters")
+  async voterHistoryByEmail(
+    @Param("email") emailParam: string,
+    @Query() q: Record<string, string>,
+  ) {
+    const email = emailParam.trim().toLowerCase();
+    const participant = await this.participants.findOneBy({ email });
+    if (!participant) throw new NotFoundException("Peserta tidak ditemukan.");
+
+    // participantId dipaksa dari email, BUKAN dari query, supaya web kedua
+    // tak bisa menukarnya ke peserta lain. include_bot juga tak diteruskan.
+    const filters = {
+      participantId: participant.id,
+      from: q.from || undefined,
+      to: q.to || undefined,
+      search: q.search || undefined,
+      school: q.school || undefined,
+      // Pencarian tak boleh menyentuh kontak voter, lihat searchScope.
+      searchScope: "public" as const,
+      sort: (q.sort === "oldest" ? "oldest" : "recent") as "oldest" | "recent",
+      limit: q.limit ? Math.min(Number(q.limit) || 50, 200) : 50,
+      offset: q.offset ? Number(q.offset) || 0 : 0,
+    };
+
+    const [rows, total] = await Promise.all([
+      this.admin.voteHistory(filters),
+      this.admin.voteHistoryCount(filters),
+    ]);
+
+    return {
+      participant: { id: participant.id, name: participant.name },
+      total,
+      count: rows.length,
+      voters: rows.map(
+        (r: Record<string, unknown>) => ({
+          voted_at: r.created_at,
+          voter_name: r.voter_name,
+          voter_phone: this.maskPhone(r.voter_phone as string | null),
+          voter_email: this.maskEmail(r.voter_email as string | null),
+          voter_status: r.voter_status,
+          voter_school: r.voter_school,
+          voter_class: r.voter_class,
+          voter_region: r.voter_region,
+          points: r.points,
+          status: r.status,
+        }),
+      ),
+    };
   }
 
   /**

@@ -12,7 +12,9 @@ perlu menyimpan ID apa pun dari sini.
 > dan **tidak bisa vote dirinya sendiri**.
 
 > **Cukup pakai 2 endpoint utama:** (1) Sync Peserta dan (2) Sync Konten —
-> keduanya by `email`. Endpoint lain di bagian *Legacy* hanya untuk kompatibilitas.
+> keduanya by `email`. Untuk web app kedua yang menampilkan data voter per
+> peserta, tambah (7) Data Voter per Peserta. Endpoint di bagian *Legacy*
+> hanya untuk kompatibilitas.
 
 ## Auth (wajib tiap request)
 
@@ -256,6 +258,91 @@ Respon: `{ "ok": true, "school": { ... } }`
 
 ---
 
+## 7. Data Voter per Peserta (untuk web app kedua)
+
+**GET** `/participants/by-email/{email}/voters`
+
+Daftar voter satu peserta buat ditampilkan di web app kedua: siapa saja yang
+vote, jam berapa, dari sekolah mana. Satu baris per vote, terbaru dulu.
+
+Pakai `X-Api-Key` yang sama seperti endpoint lain di dokumen ini.
+
+> **Terkunci ke satu peserta.** Yang ditampilkan selalu voter milik peserta
+> pemilik `{email}` di URL. Tidak ada cara meminta voter peserta lain lewat
+> query, jadi aman dipakai halaman "voter saya" per peserta.
+>
+> **Kontak voter disamarkan.** Nomor WA & email voter sengaja tidak dikirim
+> utuh (`0812*****89`, `za***@gmail.com`) karena halaman ini dilihat peserta,
+> bukan panitia. Vote boost admin tidak pernah ikut.
+>
+> Karena itu `search` **tidak** mencari ke nomor WA/email. Kalau ikut dicari,
+> penyamaran jadi sia-sia: kirim `search=081234567` lalu lihat `total`
+> berubah, nomor utuh bisa ditebak satu per satu. Cari voter pakai nama.
+
+| Query | Keterangan |
+|-------|-----------|
+| `from` / `to` | rentang tanggal `YYYY-MM-DD`, inklusif |
+| `search` | cari nama voter atau sekolah voter. **Tidak** mencari nomor WA/email — lihat catatan di bawah. |
+| `school` | filter sekolah voter, pencocokan sebagian |
+| `sort` | `recent` (default) atau `oldest` |
+| `limit` / `offset` | paging. Default 50, maksimal 200. |
+
+Respon:
+
+```json
+{
+  "participant": { "id": "03db696e-…", "name": "Oka Pratama" },
+  "total": 114,
+  "count": 2,
+  "voters": [
+    {
+      "voted_at": "2026-07-03T23:18:35.000Z",
+      "voter_name": "Zahra Utami",
+      "voter_phone": "0812*****89",
+      "voter_email": "za***@gmail.com",
+      "voter_status": "siswa",
+      "voter_school": "SMA Negeri 1 Semarang",
+      "voter_class": "XII IPA 2",
+      "voter_region": "Kota Semarang",
+      "points": 1,
+      "status": "approved"
+    }
+  ]
+}
+```
+
+| Field | Keterangan |
+|-------|-----------|
+| `participant.id` / `participant.name` | peserta pemilik daftar ini (dari `{email}`) |
+| `total` | total voter peserta ini sesuai filter, untuk paging |
+| `count` | jumlah baris di respon ini |
+| `voted_at` | waktu vote masuk (jam), ISO 8601 |
+| `voter_phone` / `voter_email` | **disamarkan**, bukan nilai asli. Jangan dipakai untuk menghubungi atau mencocokkan data. |
+| `voter_status` | status voter (mis. `siswa`, `umum`). Bisa `null`. |
+| `voter_class` | kelas voter, bisa `null` |
+| `points` | poin dari vote ini |
+| `voter_school` | dari data saat vote; kalau kosong diambil dari profil voter |
+| `voter_region` | kabupaten/kota voter |
+| `status` | `pending` = bukti follow belum direview admin, poin belum masuk |
+
+Peserta (email) tidak ditemukan → `404`.
+
+```bash
+# Halaman pertama
+curl "$BASE/participants/by-email/budi@sekolah.sch.id/voters?limit=20" -H "X-Api-Key: $KEY"
+
+# Halaman berikutnya: offset += limit, berhenti kalau offset >= total
+curl "$BASE/participants/by-email/budi@sekolah.sch.id/voters?limit=20&offset=20" -H "X-Api-Key: $KEY"
+
+# Voter bulan Juli saja, urut terlama
+curl "$BASE/participants/by-email/budi@sekolah.sch.id/voters?from=2026-07-01&to=2026-07-31&sort=oldest" -H "X-Api-Key: $KEY"
+```
+
+> Satu baris = satu vote. Untuk halaman "voter saya", pakai `total` sebagai
+> jumlah pendukung sesuai filter, bukan `count` (itu jumlah baris di halaman ini).
+
+---
+
 ## Contoh cepat (curl)
 
 ```bash
@@ -279,6 +366,9 @@ curl -X PUT $BASE/participants/by-email/budi@sekolah.sch.id/contents \
 
 # Verifikasi peserta + ambil link/statistik/peringkat
 curl $BASE/participants/by-email/budi@sekolah.sch.id -H "X-Api-Key: $KEY"
+
+# Daftar voter satu peserta (untuk web app kedua)
+curl "$BASE/participants/by-email/budi@sekolah.sch.id/voters?limit=20" -H "X-Api-Key: $KEY"
 
 # Lookup cepat by nama (spasi di-encode %20)
 curl "$BASE/participants/by-name/Budi%20Santoso" -H "X-Api-Key: $KEY"
@@ -304,6 +394,9 @@ curl -X POST $BASE/schools \
 - **Foto**: endpoint ini tidak menerima file. Upload foto ke storage kalian dulu, lalu kirim `photo_url`-nya.
 - Sekolah auto-dibuat kalau belum ada; akun login peserta dibuat otomatis (login pakai nomor WA).
 - Nomor WA & email harus unik antar peserta → `409` bila bentrok.
+- **Data voter** (bagian 7) selalu terkunci ke peserta pemilik `{email}` dan
+  kontaknya disamarkan. Kalau web app kedua butuh kontak voter utuh (mis. untuk
+  panitia, bukan peserta), minta endpoint terpisah — jangan pakai yang ini.
 - API key salah/kurang → `401`. Data tidak valid → `400` (detail di field `message`).
 
 ---

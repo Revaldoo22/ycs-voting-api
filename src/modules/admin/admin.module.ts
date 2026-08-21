@@ -9,5 +9,8 @@ import { RaffleEventsService } from "./raffle-events.service";
   imports: [AuthModule],
   controllers: [AdminController, RaffleController],
   providers: [AdminService, RaffleEventsService],
+  // AdminService diekspor agar IntegrationsController bisa memakai ulang
+  // query voteHistory (satu sumber SQL, tak diduplikasi).
+  exports: [AdminService],
 })
 export class AdminModule {}
