@@ -23,6 +23,13 @@ export class AppSettings {
   @Column({ name: "spin_point_cost", type: "int", default: 10 })
   spinPointCost!: number;
 
+  /**
+   * Harga diskon spin PERTAMA tiap akun (sekali seumur akun). Setelah itu
+   * kembali ke harga normal `spinPointCost`.
+   */
+  @Column({ name: "spin_first_cost", type: "int", default: 3 })
+  spinFirstCost!: number;
+
   /** Paket banyak spin sekaligus tersedia atau tidak (opsi "5x + bonus"). */
   @Column({ name: "spin_bundle_enabled", type: "boolean", default: true })
   spinBundleEnabled!: boolean;

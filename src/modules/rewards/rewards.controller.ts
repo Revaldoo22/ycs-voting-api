@@ -98,6 +98,17 @@ class PrizeDto {
   @IsOptional() @IsBoolean() is_empty?: boolean;
   @IsOptional() @IsInt() @Min(0) key_grant?: number;
   @IsOptional() @IsInt() @Min(0) stock?: number | null;
+  /** Batas jumlah AKUN penerima (mis. 41 orang), bukan jumlah keping. */
+  @IsOptional() @IsInt() @Min(0) winner_quota?: number | null;
+  /** Maksimal berapa kali satu akun boleh dapat hadiah ini. */
+  @IsOptional() @IsInt() @Min(0) max_per_account?: number | null;
+  /** Hadiah dijamin di titik spin acak (dipakai Kunci), bukan diundi. */
+  @IsOptional() @IsBoolean() is_guaranteed?: boolean;
+  @IsOptional() @IsInt() @Min(1) guarantee_min_spin?: number;
+  @IsOptional() @IsInt() @Min(1) guarantee_max_spin?: number;
+  /** Diberikan otomatis saat ambang poin / jumlah spin tercapai. */
+  @IsOptional() @IsInt() @Min(0) auto_at_points?: number | null;
+  @IsOptional() @IsInt() @Min(0) auto_at_spins?: number | null;
   @IsOptional() @IsString() @MaxLength(20) color?: string;
   @IsOptional() @IsBoolean() active?: boolean;
   @IsOptional() @IsInt() sort_order?: number;
@@ -110,6 +121,8 @@ class PrizePatchDto extends PrizeDto {
 
 class SpinOptionsDto {
   @IsOptional() @IsInt() @Min(0) spin_point_cost?: number;
+  /** Harga diskon spin pertama tiap akun (sekali seumur akun). */
+  @IsOptional() @IsInt() @Min(0) spin_first_cost?: number;
   @IsOptional() @IsBoolean() spin_bundle_enabled?: boolean;
   @IsOptional() @IsInt() @Min(1) spin_bundle_count?: number;
   @IsOptional() @IsInt() @Min(0) spin_bundle_bonus?: number;
@@ -155,6 +168,17 @@ function toPrizeEntity(d: PrizeDto | PrizePatchDto) {
     ...(d.is_empty !== undefined && { isEmpty: d.is_empty }),
     ...(d.key_grant !== undefined && { keyGrant: d.key_grant }),
     ...(d.stock !== undefined && { stock: d.stock }),
+    ...(d.winner_quota !== undefined && { winnerQuota: d.winner_quota }),
+    ...(d.max_per_account !== undefined && { maxPerAccount: d.max_per_account }),
+    ...(d.is_guaranteed !== undefined && { isGuaranteed: d.is_guaranteed }),
+    ...(d.guarantee_min_spin !== undefined && {
+      guaranteeMinSpin: d.guarantee_min_spin,
+    }),
+    ...(d.guarantee_max_spin !== undefined && {
+      guaranteeMaxSpin: d.guarantee_max_spin,
+    }),
+    ...(d.auto_at_points !== undefined && { autoAtPoints: d.auto_at_points }),
+    ...(d.auto_at_spins !== undefined && { autoAtSpins: d.auto_at_spins }),
     ...(d.color !== undefined && { color: d.color }),
     ...(d.active !== undefined && { active: d.active }),
     ...(d.sort_order !== undefined && { sortOrder: d.sort_order }),
@@ -296,6 +320,15 @@ export class RewardsIntegrationController {
   @Get("balance/:email")
   balance(@Param("email") email: string) {
     return this.svc.getBalance(email);
+  }
+
+  /**
+   * Harga spin berikutnya untuk satu akun. Spin pertama tiap akun lebih
+   * murah, jadi UI harus menanyakan ini alih-alih memakai harga tetap.
+   */
+  @Get("spin-price/:email")
+  spinPrice(@Param("email") email: string) {
+    return this.svc.getSpinPricing(email);
   }
 
   /** Tukar poin dengan satu item katalog. */

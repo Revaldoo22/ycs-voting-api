@@ -5,6 +5,7 @@ import {
   Profile,
   RewardCatalog,
   RewardRedemption,
+  SpinAccount,
   SpinPrize,
   SpinResult,
 } from "../../database/entities";
@@ -24,6 +25,7 @@ import { RewardsService } from "./rewards.service";
       SpinPrize,
       RewardRedemption,
       SpinResult,
+      SpinAccount,
       AppSettings,
       Profile,
     ]),

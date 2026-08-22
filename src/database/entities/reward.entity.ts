@@ -2,6 +2,7 @@ import {
   Column,
   CreateDateColumn,
   Entity,
+  PrimaryColumn,
   PrimaryGeneratedColumn,
   UpdateDateColumn,
 } from "typeorm";
@@ -119,6 +120,46 @@ export class SpinPrize {
   @Column({ type: "int", nullable: true })
   stock!: number | null;
 
+  /**
+   * Batas jumlah AKUN penerima. Berbeda dari `stock` yang menghitung keping:
+   * "jatah 41 orang" = 41 akun berbeda, bukan 41 keping. null = tak dibatasi.
+   */
+  @Column({ name: "winner_quota", type: "int", nullable: true })
+  winnerQuota!: number | null;
+
+  /**
+   * Maksimal berapa kali satu akun boleh mendapat hadiah ini. null = bebas.
+   * Tumbler dibatasi 1 supaya tidak dobel walau rodanya mendarat lagi di sana.
+   */
+  @Column({ name: "max_per_account", type: "int", nullable: true })
+  maxPerAccount!: number | null;
+
+  /**
+   * Hadiah dijamin (bukan diundi): diberikan saat akun mencapai titik spin
+   * yang sudah ditentukan untuknya. Dipakai Kunci. Hadiah bertanda ini
+   * DIKELUARKAN dari undian acak biasa supaya tidak dobel jalur.
+   */
+  @Column({ name: "is_guaranteed", type: "boolean", default: false })
+  isGuaranteed!: boolean;
+
+  /** Rentang titik jaminan (mis. 1..5): kunci keluar di spin ke-N acak. */
+  @Column({ name: "guarantee_min_spin", type: "int", default: 1 })
+  guaranteeMinSpin!: number;
+
+  @Column({ name: "guarantee_max_spin", type: "int", default: 5 })
+  guaranteeMaxSpin!: number;
+
+  /**
+   * Diberikan otomatis begitu akun mencapai ambang poin ini (tanpa perlu
+   * beruntung di roda). null = tidak ada jalur otomatis.
+   */
+  @Column({ name: "auto_at_points", type: "int", nullable: true })
+  autoAtPoints!: number | null;
+
+  /** Diberikan otomatis begitu akun mencapai jumlah spin ini. */
+  @Column({ name: "auto_at_spins", type: "int", nullable: true })
+  autoAtSpins!: number | null;
+
   @Column({ type: "text", nullable: true })
   color!: string | null;
 
@@ -180,6 +221,9 @@ export class RewardRedemption {
   createdAt!: Date;
 }
 
+/** Asal satu hasil spin. */
+export type SpinSource = "random" | "guaranteed" | "auto";
+
 /**
  * Catatan satu putaran spin: apa yang didapat, dan berapa jatah/poin yang
  * terpakai. Dipakai untuk riwayat, audit, dan menghitung sisa jatah spin.
@@ -218,6 +262,46 @@ export class SpinResult {
   /** True untuk putaran bonus (yang tidak memotong jatah). */
   @Column({ name: "is_bonus", type: "boolean", default: false })
   isBonus!: boolean;
+
+  /**
+   * Asal hadiah: "random" (menang undian roda), "guaranteed" (titik jaminan
+   * kunci), atau "auto" (ambang poin/jumlah spin tercapai). Dipakai audit &
+   * penjelasan ke peserta.
+   */
+  @Column({ type: "text", default: "random" })
+  source!: SpinSource;
+
+  @CreateDateColumn({ name: "created_at", type: "timestamptz" })
+  createdAt!: Date;
+}
+
+/**
+ * Keadaan spin milik satu akun. Dibuat sekali saat akun pertama kali spin.
+ *
+ * Titik jaminan kunci diundi DI SINI, sekali, lalu disimpan. Kalau titiknya
+ * diundi ulang tiap spin, peserta bisa saja tidak pernah dapat kunci, padahal
+ * kunci itu syarat wajib menukar hadiah besar.
+ */
+@Entity("spin_accounts")
+export class SpinAccount {
+  /** Email = identitas yang dipakai bersama web kedua. */
+  @PrimaryColumn({ type: "text" })
+  email!: string;
+
+  @Column({ name: "profile_id", type: "uuid", nullable: true })
+  profileId!: string | null;
+
+  /**
+   * Spin ke berapa akun ini akan mendapat kunci. Diundi sekali saat baris
+   * dibuat, lalu tidak pernah berubah, supaya polanya tidak bisa ditebak
+   * atau dibocorkan antar peserta.
+   */
+  @Column({ name: "key_spin_target", type: "int", nullable: true })
+  keySpinTarget!: number | null;
+
+  /** Sudah pernah memakai harga diskon spin pertama atau belum. */
+  @Column({ name: "first_spin_used", type: "boolean", default: false })
+  firstSpinUsed!: boolean;
 
   @CreateDateColumn({ name: "created_at", type: "timestamptz" })
   createdAt!: Date;

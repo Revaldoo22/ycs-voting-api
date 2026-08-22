@@ -36,7 +36,9 @@ export {
   SpinPrize,
   RewardRedemption,
   SpinResult,
+  SpinAccount,
   type RedeemKind,
+  type SpinSource,
 } from "./reward.entity";
 
 import { School } from "./school.entity";
@@ -58,6 +60,7 @@ import {
   SpinPrize,
   RewardRedemption,
   SpinResult,
+  SpinAccount,
 } from "./reward.entity";
 
 /** Single registration point, add new entities here once. */
@@ -81,4 +84,5 @@ export const ENTITIES = [
   SpinPrize,
   RewardRedemption,
   SpinResult,
+  SpinAccount,
 ];

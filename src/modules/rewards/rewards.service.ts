@@ -12,8 +12,10 @@ import {
   Profile,
   RewardCatalog,
   RewardRedemption,
+  SpinAccount,
   SpinPrize,
   SpinResult,
+  type SpinSource,
 } from "../../database/entities";
 
 /** Saldo yang bisa dibelanjakan oleh satu akun. */
@@ -50,6 +52,8 @@ export class RewardsService {
     private readonly settings: Repository<AppSettings>,
     @InjectRepository(Profile)
     private readonly profiles: Repository<Profile>,
+    @InjectRepository(SpinAccount)
+    private readonly accounts: Repository<SpinAccount>,
   ) {}
 
   // ----------------------------- Setelan -----------------------------
@@ -92,17 +96,23 @@ export class RewardsService {
         point_cost: s.spinPointCost * s.spinBundleCount,
       });
     }
-    return { spin_point_cost: s.spinPointCost, options };
+    return {
+      spin_point_cost: s.spinPointCost,
+      spin_first_cost: s.spinFirstCost,
+      options,
+    };
   }
 
   async updateSpinOptions(patch: {
     spin_point_cost?: number;
+    spin_first_cost?: number;
     spin_bundle_enabled?: boolean;
     spin_bundle_count?: number;
     spin_bundle_bonus?: number;
   }) {
     const s = await this.appSettings();
     if (patch.spin_point_cost !== undefined) s.spinPointCost = patch.spin_point_cost;
+    if (patch.spin_first_cost !== undefined) s.spinFirstCost = patch.spin_first_cost;
     if (patch.spin_bundle_enabled !== undefined)
       s.spinBundleEnabled = patch.spin_bundle_enabled;
     if (patch.spin_bundle_count !== undefined)
@@ -267,9 +277,18 @@ export class RewardsService {
       is_empty: p.isEmpty,
       key_grant: p.keyGrant,
       stock: p.stock,
+      winner_quota: p.winnerQuota,
+      max_per_account: p.maxPerAccount,
+      is_guaranteed: p.isGuaranteed,
+      guarantee_min_spin: p.guaranteeMinSpin,
+      guarantee_max_spin: p.guaranteeMaxSpin,
+      auto_at_points: p.autoAtPoints,
+      auto_at_spins: p.autoAtSpins,
       color: p.color,
       active: p.active,
       sort_order: p.sortOrder,
+      // Peluang di UNDIAN ACAK saja. Hadiah berjaminan & hadiah yang
+      // diberikan otomatis bernilai 0 di sini karena tidak lewat undian.
       chance:
         total > 0 && this.drawable(p)
           ? Number(((p.weight / total) * 100).toFixed(2))
@@ -280,6 +299,17 @@ export class RewardsService {
   /** Hadiah ikut diundi hanya bila aktif, berbobot, dan stoknya masih ada. */
   private drawable(p: SpinPrize): boolean {
     return p.active && p.weight > 0 && (p.stock === null || p.stock > 0);
+  }
+
+  /**
+   * Masih tersedia untuk diberikan (tanpa melihat bobot).
+   *
+   * Bobot hanya mengatur peluang di UNDIAN ACAK. Hadiah berjaminan dan
+   * hadiah otomatis sengaja berbobot 0 supaya tidak ikut diundi, jadi bobot
+   * tidak boleh dipakai menilai apakah hadiah itu boleh diberikan.
+   */
+  private available(p: SpinPrize): boolean {
+    return p.active && (p.stock === null || p.stock > 0);
   }
 
   async createPrize(dto: Partial<SpinPrize> & { code: string; label: string }) {
@@ -441,9 +471,16 @@ export class RewardsService {
 
   // ------------------------------ Spin --------------------------------
 
-  /** Undi satu hadiah memakai bobot. */
-  private pick(pool: SpinPrize[]): SpinPrize {
+  /**
+   * Undi satu hadiah memakai bobot.
+   *
+   * Hadiah berjaminan (Kunci) TIDAK ikut di sini: ia punya jalurnya sendiri
+   * lewat titik spin yang sudah ditentukan per akun, jadi kalau ikut diundi
+   * acak ia bisa keluar dobel.
+   */
+  private pick(pool: SpinPrize[]): SpinPrize | null {
     const total = pool.reduce((sum, p) => sum + p.weight, 0);
+    if (total <= 0) return null;
     let r = Math.random() * total;
     for (const p of pool) {
       r -= p.weight;
@@ -452,11 +489,135 @@ export class RewardsService {
     return pool[pool.length - 1];
   }
 
+  /** Hadiah cadangan saat peserta tidak dapat apa-apa (Dash / 💨). */
+  private async emptyPrize(): Promise<SpinPrize | null> {
+    return this.prizes.findOne({
+      where: { isEmpty: true },
+      order: { sortOrder: "ASC" },
+    });
+  }
+
+  /** Ambil (atau buat) keadaan spin satu akun. */
+  private async spinAccount(
+    email: string,
+    profileId: string | null,
+  ): Promise<SpinAccount> {
+    let acc = await this.accounts.findOneBy({ email });
+    if (acc) return acc;
+
+    // Titik jaminan kunci diundi SEKALI di sini lalu disimpan permanen.
+    // Kalau diundi ulang tiap spin, peserta bisa tak pernah dapat kunci.
+    const keyPrize = await this.prizes.findOneBy({ isGuaranteed: true });
+    let target: number | null = null;
+    if (keyPrize) {
+      const lo = Math.max(1, keyPrize.guaranteeMinSpin);
+      const hi = Math.max(lo, keyPrize.guaranteeMaxSpin);
+      target = lo + Math.floor(Math.random() * (hi - lo + 1));
+    }
+    acc = this.accounts.create({
+      email,
+      profileId,
+      keySpinTarget: target,
+      firstSpinUsed: false,
+    });
+    return this.accounts.save(acc);
+  }
+
+  /** Berapa akun berbeda yang sudah pernah menerima hadiah ini. */
+  private async winnerCount(code: string): Promise<number> {
+    const r = (await this.db.query(
+      `select count(distinct email)::int as n from spin_results where prize_code = $1`,
+      [code],
+    )) as { n: number }[];
+    return r[0]?.n ?? 0;
+  }
+
+  /** Berapa kali SATU akun sudah menerima hadiah ini. */
+  private async ownedCount(email: string, code: string): Promise<number> {
+    const r = (await this.db.query(
+      `select count(*)::int as n from spin_results
+        where lower(email) = $1 and prize_code = $2`,
+      [email, code],
+    )) as { n: number }[];
+    return r[0]?.n ?? 0;
+  }
+
+  /**
+   * Apakah hadiah ini masih boleh diberikan ke akun tsb saat ini?
+   * Mengecek stok keping, kuota jumlah penerima, dan batas per akun.
+   */
+  private async claimable(p: SpinPrize, email: string): Promise<boolean> {
+    if (!this.available(p)) return false;
+    if (p.maxPerAccount !== null) {
+      if ((await this.ownedCount(email, p.code)) >= p.maxPerAccount) return false;
+    }
+    if (p.winnerQuota !== null) {
+      // Kuota dihitung per ORANG. Akun yang sudah pernah menang tidak
+      // menambah pemakaian kuota, jadi ia masih boleh menang lagi.
+      const already = (await this.ownedCount(email, p.code)) > 0;
+      if (!already && (await this.winnerCount(p.code)) >= p.winnerQuota)
+        return false;
+    }
+    return true;
+  }
+
+  /** Simpan satu hasil spin + kurangi stok kepingnya. */
+  private async record(
+    prize: SpinPrize,
+    email: string,
+    profileId: string | null,
+    batchId: string,
+    isBonus: boolean,
+    source: SpinSource,
+  ): Promise<SpinResult> {
+    if (prize.stock !== null) {
+      prize.stock -= 1;
+      await this.prizes.save(prize);
+    }
+    return this.spins.save(
+      this.spins.create({
+        profileId,
+        email,
+        prizeCode: prize.code,
+        prizeLabel: prize.label,
+        isEmpty: prize.isEmpty,
+        keyGrant: prize.keyGrant,
+        batchId,
+        isBonus,
+        source,
+      }),
+    );
+  }
+
+  /**
+   * Harga spin berikutnya untuk satu akun: diskon kalau belum pernah spin.
+   * Dipakai UI web kedua supaya bisa menampilkan harga yang benar.
+   */
+  async getSpinPricing(emailRaw: string) {
+    const email = emailRaw.trim().toLowerCase();
+    const s = await this.appSettings();
+    const acc = await this.accounts.findOneBy({ email });
+    const isFirst = !acc?.firstSpinUsed;
+    return {
+      email,
+      next_spin_cost: isFirst ? s.spinFirstCost : s.spinPointCost,
+      is_first_spin: isFirst,
+      first_spin_cost: s.spinFirstCost,
+      normal_cost: s.spinPointCost,
+    };
+  }
+
   /**
    * Putar roda. `option` = "single" (1x) atau "bundle" (paket 5x + bonus).
    *
-   * Jatah spin gratis dipakai lebih dulu; sisanya baru dibayar dengan poin.
-   * Putaran bonus tidak memotong jatah maupun poin.
+   * Urutan penentuan hadiah tiap putaran:
+   *  1. Titik jaminan kunci tercapai  -> Kunci (kalau jatah orang masih ada)
+   *  2. Ambang otomatis tercapai      -> hadiah otomatis (mis. Tumbler)
+   *  3. Undian acak berbobot          -> hadiah biasa
+   *  4. Tidak dapat apa-apa           -> Dash
+   *
+   * Jatah spin gratis dipakai lebih dulu, sisanya dibayar poin. Spin pertama
+   * tiap akun memakai harga diskon.
    */
   async spin(emailRaw: string, option: "single" | "bundle" = "single") {
     const email = emailRaw.trim().toLowerCase();
@@ -464,55 +625,131 @@ export class RewardsService {
 
     const cfg = await this.getSpinOptions();
     const chosen = cfg.options.find((o) => o.code === option);
-    if (!chosen)
-      throw new BadRequestException("Pilihan spin tidak tersedia.");
+    if (!chosen) throw new BadRequestException("Pilihan spin tidak tersedia.");
 
     const paid = chosen.spins;
     const bonus = chosen.bonus;
 
+    const profile = await this.profiles.findOneBy({ email });
+    const acc = await this.spinAccount(email, profile?.id ?? null);
+    const settings = await this.appSettings();
+
     const bal = await this.getBalance(email);
-    // Jatah gratis menutup sebagian, sisanya dibayar poin.
     const freeUsed = Math.min(bal.spins_available, paid);
     const needPay = paid - freeUsed;
-    const pointNeeded = needPay * cfg.spin_point_cost;
+
+    // Harga: putaran berbayar pertama akun ini memakai harga diskon.
+    let pointNeeded = 0;
+    let discountApplied = false;
+    for (let i = 0; i < needPay; i++) {
+      const first = !acc.firstSpinUsed && i === 0;
+      if (first) discountApplied = true;
+      pointNeeded += first ? settings.spinFirstCost : settings.spinPointCost;
+    }
     if (bal.points_available < pointNeeded) {
       throw new BadRequestException(
         `Poin tidak cukup. Butuh ${pointNeeded}, tersedia ${bal.points_available}.`,
       );
     }
 
-    const pool = (await this.prizes.find()).filter((p) => this.drawable(p));
-    if (pool.length === 0)
+    const empty = await this.emptyPrize();
+    const all = await this.prizes.find();
+    if (all.length === 0)
       throw new BadRequestException("Belum ada hadiah spin yang aktif.");
 
-    const profile = await this.profiles.findOneBy({ email });
+    // Sudah berapa kali akun ini spin sebelum ronde ini (untuk titik jaminan).
+    const before = (
+      (await this.db.query(
+        `select count(*)::int as n from spin_results where lower(email) = $1`,
+        [email],
+      )) as { n: number }[]
+    )[0].n;
+
     const batchId = randomUUID();
     const results: SpinResult[] = [];
 
     for (let i = 0; i < paid + bonus; i++) {
-      // Stok bisa habis di tengah paket, jadi pool dihitung ulang tiap putaran.
-      const live = pool.filter((p) => this.drawable(p));
-      const prize = this.pick(live.length ? live : pool);
+      const spinNo = before + i + 1; // spin ke berapa untuk akun ini
+      const isBonus = i >= paid;
+      let given: SpinResult | null = null;
 
-      if (prize.stock !== null) {
-        prize.stock -= 1;
-        await this.prizes.save(prize);
+      // 1. Titik jaminan kunci.
+      if (acc.keySpinTarget !== null && spinNo === acc.keySpinTarget) {
+        const keyPrize = all.find((p) => p.isGuaranteed);
+        if (keyPrize && (await this.claimable(keyPrize, email))) {
+          given = await this.record(
+            keyPrize,
+            email,
+            profile?.id ?? null,
+            batchId,
+            isBonus,
+            "guaranteed",
+          );
+        }
+        // Jatah kunci habis: jatuh ke Dash, sesuai aturan.
       }
 
-      results.push(
-        await this.spins.save(
-          this.spins.create({
-            profileId: profile?.id ?? null,
+      // 2. Ambang otomatis (mis. Tumbler saat 100 poin ATAU 10x spin).
+      if (!given) {
+        const pts = bal.points_earned;
+        for (const p of all) {
+          if (p.autoAtPoints === null && p.autoAtSpins === null) continue;
+          const reached =
+            (p.autoAtPoints !== null && pts >= p.autoAtPoints) ||
+            (p.autoAtSpins !== null && spinNo >= p.autoAtSpins);
+          if (!reached) continue;
+          if (!(await this.claimable(p, email))) continue;
+          given = await this.record(
+            p,
             email,
-            prizeCode: prize.code,
-            prizeLabel: prize.label,
-            isEmpty: prize.isEmpty,
-            keyGrant: prize.keyGrant,
+            profile?.id ?? null,
             batchId,
-            isBonus: i >= paid,
-          }),
-        ),
-      );
+            isBonus,
+            "auto",
+          );
+          break;
+        }
+      }
+
+      // 3. Undian acak. Hadiah berjaminan dikeluarkan dari kolam ini.
+      if (!given) {
+        // Dash IKUT kolam undian (bobot penyeimbang), supaya peluang hadiah
+        // seperti 1:300 benar-benar 1 dari 300, bukan 1 dari jumlah hadiah.
+        // Hadiah berjaminan tetap dikeluarkan: jalurnya sendiri.
+        const pool: SpinPrize[] = [];
+        for (const p of all) {
+          if (p.isGuaranteed) continue;
+          if (p.isEmpty) {
+            if (p.active && p.weight > 0) pool.push(p);
+            continue;
+          }
+          if (p.weight > 0 && (await this.claimable(p, email))) pool.push(p);
+        }
+        const won = this.pick(pool);
+        if (won) {
+          given = await this.record(
+            won,
+            email,
+            profile?.id ?? null,
+            batchId,
+            isBonus,
+            "random",
+          );
+        }
+      }
+
+      // 4. Cadangan: Dash.
+      if (!given && empty) {
+        given = await this.record(
+          empty,
+          email,
+          profile?.id ?? null,
+          batchId,
+          isBonus,
+          "random",
+        );
+      }
+      if (given) results.push(given);
     }
 
     // Poin yang dibayar dicatat sebagai penukaran, supaya semua pengurangan
@@ -532,6 +769,12 @@ export class RewardsService {
       );
     }
 
+    // Diskon spin pertama hangus setelah dipakai.
+    if (discountApplied) {
+      acc.firstSpinUsed = true;
+      await this.accounts.save(acc);
+    }
+
     return {
       ok: true,
       batch_id: batchId,
@@ -540,16 +783,19 @@ export class RewardsService {
       spins_bonus: bonus,
       free_spins_used: freeUsed,
       points_charged: pointNeeded,
+      first_spin_discount: discountApplied,
       results: results.map((r) => ({
         prize_code: r.prizeCode,
         prize_label: r.prizeLabel,
         is_empty: r.isEmpty,
         key_grant: r.keyGrant,
         is_bonus: r.isBonus,
+        source: r.source,
       })),
       balance: await this.getBalance(email),
     };
   }
+
 
   /** Riwayat spin satu akun. */
   async listSpins(emailRaw: string, limit = 50) {
@@ -615,15 +861,80 @@ export class RewardsService {
       },
     ];
 
+    // Aturan mengikuti dokumen "Cara Kerja Spin Keberuntungan YCS".
     const prizes: Partial<SpinPrize>[] = [
-      { code: "sepeda_listrik", label: "Sepeda Listrik", weight: 1, sortOrder: 1 },
-      { code: "hp_baru", label: "HP Baru", weight: 2, sortOrder: 2 },
-      { code: "vip_bali", label: "VIP Ticket Bali", weight: 3, sortOrder: 3 },
-      { code: "emoney_1jt", label: "E-Money 1jt", weight: 4, sortOrder: 4 },
-      { code: "tumbler", label: "Tumbler", weight: 12, sortOrder: 5 },
-      { code: "kaos_eksklusif", label: "Kaos Eksklusif", weight: 12, sortOrder: 6 },
-      { code: "kunci_1", label: "1 Kunci", weight: 26, keyGrant: 1, sortOrder: 7 },
-      { code: "zonk", label: "💨", weight: 40, isEmpty: true, sortOrder: 8 },
+      // Hadiah besar: SENGAJA nonaktif. Bukan berpeluang kecil, tapi memang
+      // tidak masuk roda sampai admin menyalakannya untuk event khusus.
+      {
+        code: "sepeda_listrik",
+        label: "Sepeda Listrik",
+        weight: 0,
+        active: false,
+        sortOrder: 1,
+      },
+      { code: "hp_baru", label: "HP Baru", weight: 0, active: false, sortOrder: 2 },
+      {
+        code: "vip_bali",
+        label: "VIP Ticket Bali",
+        weight: 0,
+        active: false,
+        sortOrder: 3,
+      },
+      {
+        code: "emoney_1jt",
+        label: "E-Money 1jt",
+        weight: 0,
+        active: false,
+        sortOrder: 4,
+      },
+
+      // Kunci: pasti didapat di titik acak spin ke-1..5, jatah 41 ORANG,
+      // maksimal 1 per akun. Bobot 0 karena tidak pernah lewat undian acak.
+      {
+        code: "kunci_1",
+        label: "1 Kunci",
+        weight: 0,
+        keyGrant: 1,
+        isGuaranteed: true,
+        guaranteeMinSpin: 1,
+        guaranteeMaxSpin: 5,
+        winnerQuota: 41,
+        maxPerAccount: 1,
+        sortOrder: 5,
+      },
+
+      // Tumbler: peluang 1:300 lewat roda, ATAU otomatis saat 100 poin /
+      // 10x spin. Jatah 8 orang, maksimal 1 per akun (lintas kedua jalur).
+      {
+        code: "tumbler",
+        label: "Tumbler",
+        weight: 1,
+        winnerQuota: 8,
+        maxPerAccount: 1,
+        autoAtPoints: 100,
+        autoAtSpins: 10,
+        sortOrder: 6,
+      },
+
+      // Kaos: peluang 1:300 lewat roda, jatah 6 orang.
+      {
+        code: "kaos_eksklusif",
+        label: "Kaos Eksklusif",
+        weight: 1,
+        winnerQuota: 6,
+        maxPerAccount: 1,
+        sortOrder: 7,
+      },
+
+      // Dash: ikut kolam undian dengan bobot penyeimbang, supaya Tumbler &
+      // Kaos masing-masing tepat 1:300 (1 dari total bobot 600).
+      {
+        code: "zonk",
+        label: "\u{1F4A8}",
+        weight: 598,
+        isEmpty: true,
+        sortOrder: 8,
+      },
     ];
 
     let added = 0;

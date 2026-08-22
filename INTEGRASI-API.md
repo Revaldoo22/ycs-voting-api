@@ -362,9 +362,58 @@ Semua endpoint di bawah berawalan `/rewards` dan pakai `X-Api-Key` yang sama.
 > semua poinnya.
 
 **Kunci** adalah syarat **terpisah** dari poin. "2.000 poin (18 kunci)"
-berarti butuh dua-duanya. Kunci hanya didapat dari hadiah spin "1 Kunci".
+berarti butuh dua-duanya. Kunci hanya didapat dari spin.
 
-### 8.1 Katalog penukaran
+### 8.1 Aturan main spin (WAJIB dibaca sebelum bikin UI)
+
+Roda ini **bukan undian acak biasa**. Ada tiga jalur hadiah yang berbeda, dan
+UI harus mengikuti hasil dari server, bukan mengarang sendiri.
+
+**a. Harga spin bertingkat.** Spin pertama tiap akun lebih murah (3 poin),
+setelah itu harga normal (10 poin). Diskon berlaku sekali seumur akun. Karena
+harganya berbeda per akun, **tanyakan dulu ke `/rewards/spin-price/{email}`**
+sebelum menampilkan harga.
+
+**b. Kunci pasti didapat, tapi entah di spin ke berapa.** Tiap akun ditentukan
+satu titik acak antara spin ke-1 sampai ke-5. Begitu sampai di titik itu, dia
+dapat Kunci tanpa perlu beruntung. Titik ini ditentukan sekali saat akun
+pertama kali spin lalu tidak pernah berubah.
+
+> Jangan tampilkan titik ini di UI, dan jangan pula minta lewat API. Kalau
+> peserta tahu "nanti dapat Kunci di spin ke-3", polanya bisa dibocorkan ke
+> peserta lain dan kejutannya hilang.
+
+Kunci dibatasi **41 orang** dan **1 per akun**. Kalau seorang peserta sampai
+di titiknya tapi jatah 41 orang sudah habis, dia **tidak** dapat Kunci dan
+hasilnya jadi 💨 biasa.
+
+**c. Sebagian hadiah diberikan otomatis.** Tumbler diberikan begitu akun
+mencapai **100 poin ATAU sudah spin 10 kali**, mana yang lebih dulu. Ini
+terjadi tanpa perlu menang undian. Tumbler juga dibatasi **1 per akun**, jadi
+kalau peserta sudah punya (lewat jalur manapun) dan rodanya kebetulan mendarat
+di Tumbler lagi, hasilnya tetap 💨 supaya tidak dobel.
+
+**d. Hadiah besar mati secara default.** Sepeda Listrik, HP Baru, VIP Ticket
+Bali, dan E-Money bukan berpeluang kecil, tapi memang **tidak dimasukkan ke
+roda** sampai admin menyalakannya. Selama `active: false`, tidak ada satu pun
+peserta yang bisa mendapatkannya. Tetap boleh digambar di roda sebagai
+pemanis, tapi jangan menjanjikannya ke peserta.
+
+**e. 💨 adalah hasil cadangan.** Muncul kalau peserta tidak dapat apa-apa,
+baik karena belum beruntung maupun karena jatah hadiahnya sudah habis.
+Jumlahnya tidak terbatas.
+
+Ringkasan jatah bawaan:
+
+| Hadiah | Sifat | Cara didapat | Jatah |
+|--------|-------|--------------|-------|
+| 1 Kunci | pasti didapat | titik acak spin ke-1..5 | 41 orang, maks 1/akun |
+| Tumbler | acak / otomatis | undian roda, atau otomatis saat 100 poin / 10x spin | 8 orang, maks 1/akun |
+| Kaos Eksklusif | acak | undian roda | 6 orang, maks 1/akun |
+| Hadiah besar | mati default | hanya kalau admin menyalakan | diatur admin |
+| 💨 | cadangan | kalau tidak dapat hadiah lain | tak terbatas |
+
+### 8.2 Katalog penukaran
 
 **GET** `/rewards/catalog` - daftar item yang bisa ditukar (hanya yang aktif).
 
@@ -389,7 +438,7 @@ Tumbler Stainless (100 + 3), dan 1x Spin Gratis (10 poin, tanpa kunci).
 Nilainya bisa diubah admin sewaktu-waktu, jadi **jangan di-hardcode** di web
 kalian - baca dari endpoint ini.
 
-### 8.2 Saldo akun
+### 8.3 Saldo akun
 
 **GET** `/rewards/balance/{email}`
 
@@ -412,7 +461,7 @@ kalian - baca dari endpoint ini.
 
 Email yang tidak dikenal tidak error, tapi mengembalikan saldo `0` semua.
 
-### 8.3 Tukar poin
+### 8.4 Tukar poin
 
 **POST** `/rewards/redeem`
 
@@ -448,39 +497,78 @@ Kalau gagal:
 
 **GET** `/rewards/redemptions/{email}` - riwayat penukaran, terbaru dulu.
 
-### 8.4 Hadiah spin & peluangnya
+### 8.5 Hadiah spin
 
 **GET** `/rewards/prizes` - hadiah yang aktif, untuk digambar di roda.
 
 ```json
 [
-  { "code": "sepeda_listrik", "label": "Sepeda Listrik", "weight": 1,
-    "is_empty": false, "key_grant": 0, "stock": null, "color": null,
-    "active": true, "sort_order": 1, "chance": 1 }
+  { "code": "kunci_1", "label": "1 Kunci", "weight": 0, "chance": 0,
+    "is_empty": false, "key_grant": 1, "stock": null,
+    "winner_quota": 41, "max_per_account": 1,
+    "is_guaranteed": true, "guarantee_min_spin": 1, "guarantee_max_spin": 5,
+    "auto_at_points": null, "auto_at_spins": null,
+    "color": null, "active": true, "sort_order": 5 },
+  { "code": "tumbler", "label": "Tumbler", "weight": 1, "chance": 0.17,
+    "is_empty": false, "key_grant": 0, "stock": null,
+    "winner_quota": 8, "max_per_account": 1,
+    "is_guaranteed": false, "guarantee_min_spin": 1, "guarantee_max_spin": 5,
+    "auto_at_points": 100, "auto_at_spins": 10,
+    "color": null, "active": true, "sort_order": 6 }
 ]
 ```
 
 | Field | Keterangan |
 |-------|-----------|
-| `chance` | peluang dalam persen, sudah dihitung dari bobot. Total selalu 100. |
-| `is_empty` | `true` untuk 💨 (tidak dapat apa-apa) - tampilkan "belum beruntung" |
+| `chance` | peluang **di undian acak saja**, dalam persen. Lihat catatan di bawah. |
+| `is_guaranteed` | `true` = hadiah pasti (Kunci), tidak lewat undian |
+| `winner_quota` | batas jumlah **orang** yang boleh menang, bukan jumlah barang |
+| `max_per_account` | maksimal berapa kali satu akun boleh dapat hadiah ini |
+| `auto_at_points` / `auto_at_spins` | ambang pemberian otomatis. `null` = tidak ada. |
+| `is_empty` | `true` untuk 💨 - tampilkan "belum beruntung" |
 | `key_grant` | kunci yang didapat kalau mendarat di sini |
-| `stock` | sisa stok; hadiah yang habis otomatis tidak keluar lagi |
+| `stock` | sisa barang; yang habis otomatis tidak keluar lagi |
 
-Hadiah bawaan: Sepeda Listrik, HP Baru, VIP Ticket Bali, E-Money 1jt, Tumbler,
-Kaos Eksklusif, 1 Kunci, dan 💨. Bobot peluangnya diatur admin.
+> **`chance` tidak berjumlah 100.** Angka ini hanya menggambarkan undian acak.
+> Hadiah berjaminan (`is_guaranteed: true`) dan hadiah nonaktif bernilai `0`
+> karena tidak ikut diundi, padahal Kunci justru **pasti** didapat. Jadi
+> jangan menampilkan `chance` Kunci sebagai "peluang 0%" ke peserta, itu
+> menyesatkan.
 
 > Pemenang **ditentukan server**, bukan animasi di web kalian. Panggil
 > `POST /rewards/spin` dulu, baru putar animasi roda supaya berhenti di
 > hadiah yang dikembalikan. Jangan mengundi sendiri di sisi klien.
 
-### 8.5 Pilihan spin
+### 8.6 Harga spin per akun
+
+**GET** `/rewards/spin-price/{email}`
+
+Karena spin pertama tiap akun didiskon, harga berbeda antar akun. Panggil ini
+sebelum menampilkan tombol spin.
+
+```json
+{
+  "email": "budi@sekolah.sch.id",
+  "next_spin_cost": 3,
+  "is_first_spin": true,
+  "first_spin_cost": 3,
+  "normal_cost": 10
+}
+```
+
+| Field | Keterangan |
+|-------|-----------|
+| `next_spin_cost` | **harga yang harus ditampilkan** untuk spin berikutnya |
+| `is_first_spin` | `true` = akun ini belum pernah spin, jadi masih dapat diskon |
+
+### 8.7 Pilihan spin
 
 **GET** `/rewards/spin-options`
 
 ```json
 {
   "spin_point_cost": 10,
+  "spin_first_cost": 3,
   "options": [
     { "code": "single", "label": "1x Spin", "spins": 1, "bonus": 0, "point_cost": 10 },
     { "code": "bundle", "label": "5x Spin + 1 Bonus", "spins": 5, "bonus": 1, "point_cost": 50 }
@@ -492,7 +580,12 @@ Jumlah spin, bonus, dan harganya diatur admin - **baca dari endpoint ini**,
 jangan di-hardcode. Kalau paket dimatikan admin, `options` hanya berisi
 `single`.
 
-### 8.6 Putar roda
+> `point_cost` pada paket **belum memperhitungkan diskon spin pertama**: paket
+> selalu dihitung dengan harga normal. Diskon hanya berlaku untuk spin satuan.
+> Untuk harga sebenarnya yang akan ditagih, lihat `points_charged` di respon
+> spin.
+
+### 8.8 Putar roda
 
 **POST** `/rewards/spin`
 
@@ -507,10 +600,14 @@ jangan di-hardcode. Kalau paket dimatikan admin, `options` hanya berisi
   "ok": true, "batch_id": "...", "option": "bundle",
   "spins_paid": 5, "spins_bonus": 1,
   "free_spins_used": 0, "points_charged": 50,
+  "first_spin_discount": false,
   "results": [
-    { "prize_code": "tumbler", "prize_label": "Tumbler", "is_empty": false, "key_grant": 0, "is_bonus": false },
-    { "prize_code": "zonk", "prize_label": "💨", "is_empty": true, "key_grant": 0, "is_bonus": false },
-    { "prize_code": "kunci_1", "prize_label": "1 Kunci", "is_empty": false, "key_grant": 1, "is_bonus": true }
+    { "prize_code": "kunci_1", "prize_label": "1 Kunci", "is_empty": false,
+      "key_grant": 1, "is_bonus": false, "source": "guaranteed" },
+    { "prize_code": "tumbler", "prize_label": "Tumbler", "is_empty": false,
+      "key_grant": 0, "is_bonus": false, "source": "auto" },
+    { "prize_code": "zonk", "prize_label": "💨", "is_empty": true,
+      "key_grant": 0, "is_bonus": true, "source": "random" }
   ],
   "balance": { "points_available": 2440, "keys_available": 1, "...": "..." }
 }
@@ -519,10 +616,16 @@ jangan di-hardcode. Kalau paket dimatikan admin, `options` hanya berisi
 | Field | Keterangan |
 |-------|-----------|
 | `results` | satu baris per putaran, **urut**. Paket 5x+1 menghasilkan 6 baris. |
+| `source` | asal hadiah: `guaranteed` (titik Kunci), `auto` (ambang tercapai), `random` (menang undian) |
 | `is_bonus` | `true` untuk putaran bonus (gratis, tidak menagih poin) |
 | `free_spins_used` | jatah gratis yang terpakai; **dipakai lebih dulu** sebelum poin |
-| `points_charged` | poin yang benar-benar ditagih |
+| `points_charged` | poin yang benar-benar ditagih, sudah termasuk diskon |
+| `first_spin_discount` | `true` kalau diskon spin pertama terpakai di panggilan ini |
 | `batch_id` | penanda satu sesi; semua baris dari satu panggilan punya nilai sama |
+
+> `source` berguna untuk memilih kalimat di UI. `guaranteed` dan `auto` bukan
+> hasil keberuntungan, jadi lebih pas ditulis "Kamu dapat Kunci!" daripada
+> "Selamat, kamu beruntung!".
 
 Poin kurang menghasilkan `400` dengan pesan jumlah yang dibutuhkan. Belum ada
 hadiah aktif juga `400`.
@@ -536,8 +639,9 @@ curl $BASE/rewards/catalog      -H "X-Api-Key: $KEY"
 curl $BASE/rewards/prizes       -H "X-Api-Key: $KEY"
 curl $BASE/rewards/spin-options -H "X-Api-Key: $KEY"
 
-# Saldo satu akun
-curl $BASE/rewards/balance/budi@sekolah.sch.id -H "X-Api-Key: $KEY"
+# Saldo + harga spin akun ini
+curl $BASE/rewards/balance/budi@sekolah.sch.id    -H "X-Api-Key: $KEY"
+curl $BASE/rewards/spin-price/budi@sekolah.sch.id -H "X-Api-Key: $KEY"
 
 # Tukar poin
 curl -X POST $BASE/rewards/redeem \
@@ -611,6 +715,11 @@ curl -X POST $BASE/schools \
   aman. Harga, hadiah, dan pilihan spin diatur admin, jadi baca dari endpoint
   (`/rewards/catalog`, `/rewards/prizes`, `/rewards/spin-options`), jangan
   di-hardcode. Pemenang spin ditentukan server, animasi roda hanya mengikuti.
+- **Spin bukan undian acak biasa** (bagian 8.1): Kunci pasti didapat di titik
+  acak spin ke-1..5 dan dibatasi 41 orang, Tumbler bisa diberikan otomatis saat
+  100 poin / 10x spin, dan hadiah besar mati sampai admin menyalakannya. Harga
+  spin pertama tiap akun juga lebih murah, jadi tanyakan
+  `/rewards/spin-price/{email}` sebelum menampilkan harga.
 - API key salah/kurang → `401`. Data tidak valid → `400` (detail di field `message`).
 
 ---
