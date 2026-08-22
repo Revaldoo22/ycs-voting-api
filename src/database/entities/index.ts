@@ -31,6 +31,13 @@ export {
   type RoundStatus,
   type RoundSchoolStatus,
 } from "./round.entity";
+export {
+  RewardCatalog,
+  SpinPrize,
+  RewardRedemption,
+  SpinResult,
+  type RedeemKind,
+} from "./reward.entity";
 
 import { School } from "./school.entity";
 import { Participant } from "./participant.entity";
@@ -46,6 +53,12 @@ import { Coupon } from "./coupon.entity";
 import { CouponClaim } from "./coupon-claim.entity";
 import { Notification } from "./notification.entity";
 import { Round, RoundSchool } from "./round.entity";
+import {
+  RewardCatalog,
+  SpinPrize,
+  RewardRedemption,
+  SpinResult,
+} from "./reward.entity";
 
 /** Single registration point, add new entities here once. */
 export const ENTITIES = [
@@ -64,4 +77,8 @@ export const ENTITIES = [
   Notification,
   Round,
   RoundSchool,
+  RewardCatalog,
+  SpinPrize,
+  RewardRedemption,
+  SpinResult,
 ];

@@ -12,9 +12,9 @@ perlu menyimpan ID apa pun dari sini.
 > dan **tidak bisa vote dirinya sendiri**.
 
 > **Cukup pakai 2 endpoint utama:** (1) Sync Peserta dan (2) Sync Konten —
-> keduanya by `email`. Untuk web app kedua yang menampilkan data voter per
-> peserta, tambah (7) Data Voter per Peserta. Endpoint di bagian *Legacy*
-> hanya untuk kompatibilitas.
+> keduanya by `email`. Untuk web app kedua: tambah (7) Data Voter per Peserta
+> dan (8) Tukar Poin & Spin Hadiah. Endpoint di bagian *Legacy* hanya untuk
+> kompatibilitas.
 
 ## Auth (wajib tiap request)
 
@@ -343,6 +343,215 @@ curl "$BASE/participants/by-email/budi@sekolah.sch.id/voters?from=2026-07-01&to=
 
 ---
 
+## 8. Tukar Poin & Spin Hadiah (untuk web app kedua)
+
+UI penukaran dan roda spin dibangun di web app kedua. Bagian ini hanya
+menyediakan datanya: katalog, hadiah, saldo, dan aturan mainnya.
+
+Semua endpoint di bawah berawalan `/rewards` dan pakai `X-Api-Key` yang sama.
+
+### Cara poin dihitung (baca ini dulu)
+
+**1 vote masuk = 1 poin.** Poin peserta dihitung dari jumlah vote yang
+`approved` (vote bot tidak dihitung).
+
+> **Menukar poin TIDAK mengurangi jumlah vote.** Vote adalah dasar peringkat
+> lomba, jadi tidak pernah disentuh. Yang dicatat adalah "poin terpakai",
+> lalu saldo yang bisa dibelanjakan = poin dari vote - poin terpakai.
+> Peringkat peserta di bagian 3 & 4 tidak akan berubah walau dia menukar
+> semua poinnya.
+
+**Kunci** adalah syarat **terpisah** dari poin. "2.000 poin (18 kunci)"
+berarti butuh dua-duanya. Kunci hanya didapat dari hadiah spin "1 Kunci".
+
+### 8.1 Katalog penukaran
+
+**GET** `/rewards/catalog` - daftar item yang bisa ditukar (hanya yang aktif).
+
+```json
+[
+  { "id": "...", "code": "hp_baru", "name": "HP Baru", "description": null,
+    "point_cost": 2000, "key_cost": 18, "kind": "item", "spin_grant": 0,
+    "stock": null, "active": true, "sort_order": 1 }
+]
+```
+
+| Field | Keterangan |
+|-------|-----------|
+| `code` | kode stabil, dipakai saat `POST /rewards/redeem` |
+| `point_cost` / `key_cost` | biaya poin dan kunci. Dua-duanya harus terpenuhi. |
+| `kind` | `item` = barang fisik, `spin` = menambah jatah spin gratis |
+| `spin_grant` | jumlah spin gratis yang diberikan (hanya untuk `kind: "spin"`) |
+| `stock` | sisa stok, `null` = tidak dibatasi |
+
+Isi bawaan event: HP Baru (2.000 poin + 18 kunci), E-Money 500rb (750 + 10),
+Tumbler Stainless (100 + 3), dan 1x Spin Gratis (10 poin, tanpa kunci).
+Nilainya bisa diubah admin sewaktu-waktu, jadi **jangan di-hardcode** di web
+kalian - baca dari endpoint ini.
+
+### 8.2 Saldo akun
+
+**GET** `/rewards/balance/{email}`
+
+```json
+{
+  "email": "budi@sekolah.sch.id", "name": "Budi Santoso",
+  "points_earned": 2500, "points_spent": 60, "points_available": 2440,
+  "keys_earned": 1, "keys_spent": 0, "keys_available": 1,
+  "spins_available": 0
+}
+```
+
+| Field | Keterangan |
+|-------|-----------|
+| `points_earned` | poin dari vote (= jumlah vote approved). Tidak pernah turun. |
+| `points_spent` | poin yang sudah dipakai menukar / membeli spin |
+| `points_available` | **sisa yang bisa dibelanjakan** - pakai angka ini di UI |
+| `keys_available` | sisa kunci |
+| `spins_available` | jatah spin gratis yang belum dipakai |
+
+Email yang tidak dikenal tidak error, tapi mengembalikan saldo `0` semua.
+
+### 8.3 Tukar poin
+
+**POST** `/rewards/redeem`
+
+```json
+{ "email": "budi@sekolah.sch.id", "code": "tumbler_stainless", "note": "opsional" }
+```
+
+Respon berisi catatan penukaran + **saldo terbaru** (tak perlu panggil
+`/balance` lagi):
+
+```json
+{
+  "ok": true,
+  "redemption": { "id": "...", "reward_code": "tumbler_stainless",
+    "reward_name": "Tumbler Stainless", "point_cost": 100, "key_cost": 3,
+    "spin_grant": 0, "status": "pending", "created_at": "2026-08-22T09:10:27+07" },
+  "balance": { "points_available": 2340, "keys_available": 0, "...": "..." }
+}
+```
+
+`status` penukaran: `pending` (menunggu diserahkan panitia) lalu `done`.
+Panitia bisa membatalkan (`canceled`); poin & kunci otomatis kembali.
+
+Kalau gagal:
+
+| Kondisi | Kode | Pesan |
+|---------|------|-------|
+| Poin kurang | `400` | `Poin tidak cukup. Butuh 2000, tersedia 1500.` |
+| Kunci kurang | `400` | `Kunci tidak cukup. Butuh 18, tersedia 3.` |
+| Stok habis | `409` | `Stok hadiah sudah habis.` |
+| Item nonaktif | `400` | `Item ini sedang tidak tersedia.` |
+| Kode tak dikenal | `404` | `Item katalog tidak ditemukan.` |
+
+**GET** `/rewards/redemptions/{email}` - riwayat penukaran, terbaru dulu.
+
+### 8.4 Hadiah spin & peluangnya
+
+**GET** `/rewards/prizes` - hadiah yang aktif, untuk digambar di roda.
+
+```json
+[
+  { "code": "sepeda_listrik", "label": "Sepeda Listrik", "weight": 1,
+    "is_empty": false, "key_grant": 0, "stock": null, "color": null,
+    "active": true, "sort_order": 1, "chance": 1 }
+]
+```
+
+| Field | Keterangan |
+|-------|-----------|
+| `chance` | peluang dalam persen, sudah dihitung dari bobot. Total selalu 100. |
+| `is_empty` | `true` untuk 💨 (tidak dapat apa-apa) - tampilkan "belum beruntung" |
+| `key_grant` | kunci yang didapat kalau mendarat di sini |
+| `stock` | sisa stok; hadiah yang habis otomatis tidak keluar lagi |
+
+Hadiah bawaan: Sepeda Listrik, HP Baru, VIP Ticket Bali, E-Money 1jt, Tumbler,
+Kaos Eksklusif, 1 Kunci, dan 💨. Bobot peluangnya diatur admin.
+
+> Pemenang **ditentukan server**, bukan animasi di web kalian. Panggil
+> `POST /rewards/spin` dulu, baru putar animasi roda supaya berhenti di
+> hadiah yang dikembalikan. Jangan mengundi sendiri di sisi klien.
+
+### 8.5 Pilihan spin
+
+**GET** `/rewards/spin-options`
+
+```json
+{
+  "spin_point_cost": 10,
+  "options": [
+    { "code": "single", "label": "1x Spin", "spins": 1, "bonus": 0, "point_cost": 10 },
+    { "code": "bundle", "label": "5x Spin + 1 Bonus", "spins": 5, "bonus": 1, "point_cost": 50 }
+  ]
+}
+```
+
+Jumlah spin, bonus, dan harganya diatur admin - **baca dari endpoint ini**,
+jangan di-hardcode. Kalau paket dimatikan admin, `options` hanya berisi
+`single`.
+
+### 8.6 Putar roda
+
+**POST** `/rewards/spin`
+
+```json
+{ "email": "budi@sekolah.sch.id", "option": "bundle" }
+```
+
+`option`: `single` (default) atau `bundle`.
+
+```json
+{
+  "ok": true, "batch_id": "...", "option": "bundle",
+  "spins_paid": 5, "spins_bonus": 1,
+  "free_spins_used": 0, "points_charged": 50,
+  "results": [
+    { "prize_code": "tumbler", "prize_label": "Tumbler", "is_empty": false, "key_grant": 0, "is_bonus": false },
+    { "prize_code": "zonk", "prize_label": "💨", "is_empty": true, "key_grant": 0, "is_bonus": false },
+    { "prize_code": "kunci_1", "prize_label": "1 Kunci", "is_empty": false, "key_grant": 1, "is_bonus": true }
+  ],
+  "balance": { "points_available": 2440, "keys_available": 1, "...": "..." }
+}
+```
+
+| Field | Keterangan |
+|-------|-----------|
+| `results` | satu baris per putaran, **urut**. Paket 5x+1 menghasilkan 6 baris. |
+| `is_bonus` | `true` untuk putaran bonus (gratis, tidak menagih poin) |
+| `free_spins_used` | jatah gratis yang terpakai; **dipakai lebih dulu** sebelum poin |
+| `points_charged` | poin yang benar-benar ditagih |
+| `batch_id` | penanda satu sesi; semua baris dari satu panggilan punya nilai sama |
+
+Poin kurang menghasilkan `400` dengan pesan jumlah yang dibutuhkan. Belum ada
+hadiah aktif juga `400`.
+
+**GET** `/rewards/spins/{email}?limit=50` - riwayat spin, terbaru dulu
+(maks 200).
+
+```bash
+# Katalog, hadiah, dan pilihan spin (untuk menggambar UI)
+curl $BASE/rewards/catalog      -H "X-Api-Key: $KEY"
+curl $BASE/rewards/prizes       -H "X-Api-Key: $KEY"
+curl $BASE/rewards/spin-options -H "X-Api-Key: $KEY"
+
+# Saldo satu akun
+curl $BASE/rewards/balance/budi@sekolah.sch.id -H "X-Api-Key: $KEY"
+
+# Tukar poin
+curl -X POST $BASE/rewards/redeem \
+  -H "X-Api-Key: $KEY" -H "Content-Type: application/json" \
+  -d '{"email":"budi@sekolah.sch.id","code":"tumbler_stainless"}'
+
+# Putar roda 5x + 1 bonus
+curl -X POST $BASE/rewards/spin \
+  -H "X-Api-Key: $KEY" -H "Content-Type: application/json" \
+  -d '{"email":"budi@sekolah.sch.id","option":"bundle"}'
+```
+
+---
+
 ## Contoh cepat (curl)
 
 ```bash
@@ -397,6 +606,11 @@ curl -X POST $BASE/schools \
 - **Data voter** (bagian 7) selalu terkunci ke peserta pemilik `{email}` dan
   kontaknya disamarkan. Kalau web app kedua butuh kontak voter utuh (mis. untuk
   panitia, bukan peserta), minta endpoint terpisah — jangan pakai yang ini.
+- **Tukar poin & spin** (bagian 8): poin = jumlah vote approved (1 vote =
+  1 poin), dan **menukar poin tidak mengurangi vote** — peringkat peserta
+  aman. Harga, hadiah, dan pilihan spin diatur admin, jadi baca dari endpoint
+  (`/rewards/catalog`, `/rewards/prizes`, `/rewards/spin-options`), jangan
+  di-hardcode. Pemenang spin ditentukan server, animasi roda hanya mengikuti.
 - API key salah/kurang → `401`. Data tidak valid → `400` (detail di field `message`).
 
 ---
