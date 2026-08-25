@@ -27,9 +27,9 @@ export {
 export { Notification, type NotificationType } from "./notification.entity";
 export {
   Round,
-  RoundSchool,
+  RoundParticipant,
   type RoundStatus,
-  type RoundSchoolStatus,
+  type RoundParticipantStatus,
 } from "./round.entity";
 export {
   RewardCatalog,
@@ -54,7 +54,7 @@ import { Region } from "./region.entity";
 import { Coupon } from "./coupon.entity";
 import { CouponClaim } from "./coupon-claim.entity";
 import { Notification } from "./notification.entity";
-import { Round, RoundSchool } from "./round.entity";
+import { Round, RoundParticipant } from "./round.entity";
 import {
   RewardCatalog,
   SpinPrize,
@@ -79,7 +79,7 @@ export const ENTITIES = [
   CouponClaim,
   Notification,
   Round,
-  RoundSchool,
+  RoundParticipant,
   RewardCatalog,
   SpinPrize,
   RewardRedemption,

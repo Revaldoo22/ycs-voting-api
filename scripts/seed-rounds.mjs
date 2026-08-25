@@ -1,5 +1,5 @@
 // Seed gelombang: Grup A/B/C (global top-200, auto-close terjadwal).
-// RESET: hapus semua rounds + round_schools lama dulu, lalu buat fresh.
+// RESET: hapus semua rounds + round_participants lama dulu, lalu buat fresh.
 //   node scripts/seed-rounds.mjs
 //
 // - Grup A: active,  sequence 1, auto-tutup 31 Agu 2026 23:59 WIB
@@ -27,8 +27,8 @@ const rounds = [
 
 await client.query("begin");
 try {
-  // RESET — hapus keanggotaan sekolah lalu gelombang.
-  await client.query("delete from round_schools");
+  // RESET — hapus keanggotaan peserta lalu gelombang.
+  await client.query("delete from round_participants");
   await client.query("delete from rounds");
 
   for (const r of rounds) {

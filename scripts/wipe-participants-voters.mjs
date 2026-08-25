@@ -3,7 +3,7 @@
 // Dihapus:
 //   - daily_votes, submissions (+ proofs), coupons  (aktivitas voting)
 //   - participant_contents, participants            (semua peserta)
-//   - round_schools                                 (keanggotaan gelombang — turunan peserta)
+//   - round_participants                            (keanggotaan gelombang — turunan peserta)
 //   - profiles dengan role 'voter' / 'participant'  (semua akun voter & akun peserta,
 //     termasuk data leads PMB yang menempel di profil voter!)
 //
@@ -33,7 +33,7 @@ for (const [label, sql] of [
   ["coupons", "select count(*)::int c from coupons"],
   ["participant_contents", "select count(*)::int c from participant_contents"],
   ["participants", "select count(*)::int c from participants"],
-  ["round_schools", "select count(*)::int c from round_schools"],
+  ["round_participants", "select count(*)::int c from round_participants"],
   [
     "profiles voter/peserta",
     "select count(*)::int c from profiles where role in ('voter','participant')",
@@ -60,7 +60,7 @@ try {
   await client.query("delete from coupons");
   await client.query("delete from daily_votes");
   await client.query("delete from participant_contents");
-  await client.query("delete from round_schools");
+  await client.query("delete from round_participants");
   await client.query("delete from participants");
   await client.query(
     "delete from profiles where role in ('voter','participant')",

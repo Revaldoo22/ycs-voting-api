@@ -110,9 +110,9 @@ class UpdateRoundDto {
   scheduled_close_at?: string | null;
 }
 
-class AddSchoolDto {
+class AddParticipantDto {
   @IsUUID()
-  school_id!: string;
+  participant_id!: string;
 }
 
 class CloseDto {
@@ -129,7 +129,7 @@ class CloseDto {
 
 class BotBoostDto {
   @IsUUID()
-  school_id!: string;
+  participant_id!: string;
 
   @IsInt()
   @Min(1)
@@ -173,22 +173,25 @@ export class RoundsController {
     return this.rounds.updateSettings(id, dto);
   }
 
-  @Get(":id/schools")
-  roundSchools(@Param("id", ParseUUIDPipe) id: string) {
-    return this.rounds.roundSchoolList(id);
+  @Get(":id/participants")
+  roundParticipants(@Param("id", ParseUUIDPipe) id: string) {
+    return this.rounds.roundParticipantList(id);
   }
 
-  @Post(":id/schools")
-  addSchool(@Param("id", ParseUUIDPipe) id: string, @Body() dto: AddSchoolDto) {
-    return this.rounds.addSchool(id, dto.school_id);
-  }
-
-  @Delete(":id/schools/:schoolId")
-  removeSchool(
+  @Post(":id/participants")
+  addParticipant(
     @Param("id", ParseUUIDPipe) id: string,
-    @Param("schoolId", ParseUUIDPipe) schoolId: string,
+    @Body() dto: AddParticipantDto,
   ) {
-    return this.rounds.removeSchool(id, schoolId);
+    return this.rounds.addParticipant(id, dto.participant_id);
+  }
+
+  @Delete(":id/participants/:participantId")
+  removeParticipant(
+    @Param("id", ParseUUIDPipe) id: string,
+    @Param("participantId", ParseUUIDPipe) participantId: string,
+  ) {
+    return this.rounds.removeParticipant(id, participantId);
   }
 
   @Post(":id/activate")
@@ -203,7 +206,7 @@ export class RoundsController {
 
   @Post(":id/bot-boost")
   botBoost(@Param("id", ParseUUIDPipe) id: string, @Body() dto: BotBoostDto) {
-    return this.rounds.botBoost(id, dto.school_id, dto.votes);
+    return this.rounds.botBoost(id, dto.participant_id, dto.votes);
   }
 
   @Delete(":id/bot-boost")
