@@ -63,6 +63,11 @@ class CreateFullRoundDto {
   @IsOptional()
   @IsBoolean()
   activate?: boolean;
+
+  /** Gelombang penutup: tak ada lanjutan setelah ini. */
+  @IsOptional()
+  @IsBoolean()
+  is_final?: boolean;
 }
 
 class PopulateDto {
@@ -108,6 +113,11 @@ class UpdateRoundDto {
   @IsOptional()
   @IsString()
   scheduled_close_at?: string | null;
+
+  /** Gelombang penutup: tak ada lanjutan setelah ini. */
+  @IsOptional()
+  @IsBoolean()
+  is_final?: boolean;
 }
 
 class AddParticipantDto {
@@ -156,6 +166,12 @@ export class RoundsController {
   @Post("full")
   createFull(@Body() dto: CreateFullRoundDto) {
     return this.rounds.createFull(dto);
+  }
+
+  /** Semua peserta lolos (opsional filter satu gelombang) untuk ekspor. */
+  @Get("qualified")
+  qualified(@Query("round_id") roundId?: string) {
+    return this.rounds.qualified(roundId || undefined);
   }
 
   @Get(":id/standings")
@@ -249,6 +265,12 @@ export class PublicRoundsController {
   @Get("rounds")
   publicRounds() {
     return this.rounds.publicList();
+  }
+
+  /** Peserta yang lolos, publik. Kosongkan round_id untuk semua gelombang. */
+  @Get("qualified")
+  qualified(@Query("round_id") roundId?: string) {
+    return this.rounds.qualified(roundId || undefined);
   }
 
   /** Klasemen/hasil satu gelombang, publik (live saat aktif, final saat tutup). */

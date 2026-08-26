@@ -4,7 +4,7 @@
 //
 // - Grup A: active,  sequence 1, auto-tutup 31 Agu 2026 23:59 WIB
 // - Grup B: draft,   sequence 2, auto-tutup 30 Sep 2026 23:59 WIB
-// - Grup C: draft,   sequence 3, auto-tutup 31 Okt 2026 23:59 WIB
+// - Grup C: draft,   sequence 3, auto-tutup 31 Okt 2026 23:59 WIB (PENUTUP)
 // Semua: select_mode 'global', top_n 200.
 import "dotenv/config";
 import pg from "pg";
@@ -22,7 +22,8 @@ await client.connect();
 const rounds = [
   { name: "Grup A", seq: 1, status: "active", close: "2026-08-31T16:59:59Z" },
   { name: "Grup B", seq: 2, status: "draft", close: "2026-09-30T16:59:59Z" },
-  { name: "Grup C", seq: 3, status: "draft", close: "2026-10-31T16:59:59Z" },
+  // Penutup: setelah ini tak ada gelombang lanjutan yang dibuat otomatis.
+  { name: "Grup C", seq: 3, status: "draft", close: "2026-10-31T16:59:59Z", final: true },
 ];
 
 await client.query("begin");
@@ -34,14 +35,16 @@ try {
   for (const r of rounds) {
     await client.query(
       `insert into rounds
-         (name, status, top_n, select_mode, sequence, starts_at, scheduled_close_at)
-       values ($1, $2, 200, 'global', $3, $4, $5)`,
+         (name, status, top_n, select_mode, sequence, starts_at,
+          scheduled_close_at, is_final)
+       values ($1, $2, 200, 'global', $3, $4, $5, $6)`,
       [
         r.name,
         r.status,
         r.seq,
         r.status === "active" ? new Date().toISOString() : null,
         r.close,
+        r.final ?? false,
       ],
     );
   }

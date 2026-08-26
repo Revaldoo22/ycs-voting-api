@@ -144,6 +144,15 @@ export class VotesService {
     });
     if (!participant) throw new VoteError("NOTFOUND");
 
+    // Peserta yang sudah lolos di gelombang mana pun tak ikut berkompetisi
+    // lagi, jadi vote ke dia ditolak (poinnya sudah final).
+    const [qualified] = (await this.dataSource.query(
+      `select 1 from round_participants
+        where participant_id = $1 and status = 'lolos' limit 1`,
+      [d.participant_id],
+    )) as unknown[];
+    if (qualified) throw new VoteError("ALREADY_QUALIFIED");
+
     // Self-vote block: voter tak boleh vote peserta yang email/WA-nya = miliknya.
     if (await this.antiCheat.isSelfVote(d.participant_id, email, phone)) {
       throw new VoteError("SELFVOTE");

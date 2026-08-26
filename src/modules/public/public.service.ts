@@ -63,7 +63,12 @@ export class PublicService {
                    else json_build_object('id', s.id, 'name', s.name,
                                           'region_id', s.region_id,
                                           'kabupaten', reg.name,
-                                          'provinsi', prov.name) end as schools
+                                          'provinsi', prov.name) end as schools,
+              -- Sudah lolos = berhenti berkompetisi, vote ke dia ditolak.
+              exists (
+                select 1 from round_participants rl
+                where rl.participant_id = p.id and rl.status = 'lolos'
+              ) as qualified
        from participants p
        left join schools s on s.id = p.school_id
        left join regions reg on reg.id = s.region_id
@@ -92,7 +97,12 @@ export class PublicService {
     const rows = await this.db.query(
       `select p.*,
               case when s.id is null then null
-                   else json_build_object('id', s.id, 'name', s.name) end as schools
+                   else json_build_object('id', s.id, 'name', s.name) end as schools,
+              -- Sudah lolos = berhenti berkompetisi, vote ke dia ditolak.
+              exists (
+                select 1 from round_participants rl
+                where rl.participant_id = p.id and rl.status = 'lolos'
+              ) as qualified
        from participants p
        left join schools s on s.id = p.school_id
        where p.id = $1`,

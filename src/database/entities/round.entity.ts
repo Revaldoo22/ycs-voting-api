@@ -37,6 +37,15 @@ export class Round {
   @Column({ name: "sequence", type: "int", default: 0 })
   sequence!: number;
 
+  /**
+   * Gelombang penutup event. Saat ditutup, TIDAK ada gelombang lanjutan yang
+   * dibuat/diaktifkan, jadi kompetisi benar-benar berakhir. Tanpa flag ini
+   * sistem akan terus menggulirkan gelombang baru selama masih ada peserta
+   * yang belum lolos.
+   */
+  @Column({ name: "is_final", type: "boolean", default: false })
+  isFinal!: boolean;
+
   @Column({ name: "starts_at", type: "timestamptz", nullable: true })
   startsAt!: Date | null;
 

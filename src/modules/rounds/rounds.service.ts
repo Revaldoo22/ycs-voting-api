@@ -43,11 +43,18 @@ export class RoundsService {
    * peserta yang sudah tercatat.
    */
   private async syncActiveParticipants(roundId: string): Promise<void> {
+    // Peserta yang sudah lolos (di gelombang mana pun) tidak ikut lagi:
+    // 1 peserta hanya bisa lolos sekali, dan yang sudah lolos berhenti
+    // berkompetisi.
     await this.db.query(
       `insert into round_participants (round_id, participant_id, status)
        select $1, p.id, 'active'
        from participants p
        where p.status = 'active'
+         and not exists (
+           select 1 from round_participants rl
+           where rl.participant_id = p.id and rl.status = 'lolos'
+         )
        on conflict (round_id, participant_id) do nothing`,
       [roundId],
     );
@@ -104,6 +111,7 @@ export class RoundsService {
       select_mode?: "per_region" | "global";
       sequence?: number;
       scheduled_close_at?: string | null;
+      is_final?: boolean;
     },
   ) {
     const round = await this.mustExist(id);
@@ -118,6 +126,7 @@ export class RoundsService {
       round.scheduledCloseAt = dto.scheduled_close_at
         ? new Date(dto.scheduled_close_at)
         : null;
+    if (dto.is_final !== undefined) round.isFinal = dto.is_final;
     if (dto.top_n !== undefined) {
       round.topN = Math.max(1, Math.min(dto.top_n, TOP_N_CAP));
     }
@@ -192,6 +201,7 @@ export class RoundsService {
     select_mode?: "per_region" | "global";
     scheduled_close_at?: string | null;
     activate?: boolean;
+    is_final?: boolean;
   }) {
     return this.db.transaction(async (em) => {
       const rr = em.getRepository(Round);
@@ -208,6 +218,7 @@ export class RoundsService {
           scheduledCloseAt: dto.scheduled_close_at
             ? new Date(dto.scheduled_close_at)
             : null,
+          isFinal: dto.is_final ?? false,
           status: dto.activate ? "active" : "draft",
           startsAt: dto.activate ? new Date() : null,
         }),
@@ -342,6 +353,44 @@ export class RoundsService {
   }
 
   /**
+   * Seluruh peserta yang LOLOS, lintas gelombang, beserta gelombang tempat
+   * mereka lolos. Dipakai halaman admin "Hasil Lolos" (+ekspor) dan halaman
+   * publik daftar peserta lolos.
+   *
+   * Catatan: satu peserta bisa gugur di gelombang awal lalu lolos di
+   * gelombang susulan. Yang dihitung hanya baris berstatus 'lolos', jadi tiap
+   * peserta muncul sekali per gelombang yang dia lolosi (normalnya satu).
+   * Hanya gelombang yang sudah ditutup yang punya hasil final.
+   */
+  qualified(roundId?: string) {
+    return this.db.query(
+      `select rp.participant_id, p.name as participant_name, p.photo_url,
+              p.school_id, coalesce(s.name, 'Tanpa Sekolah') as school_name,
+              coalesce(rg.name, 'Tanpa Kabupaten') as region_name,
+              coalesce(prov.name, 'Tanpa Provinsi') as province_name,
+              r.id as round_id, r.name as round_name, r.sequence,
+              r.ends_at,
+              (rp.carry_points + coalesce(pt.points, 0))::int as points
+       from round_participants rp
+       join rounds r on r.id = rp.round_id
+       join participants p on p.id = rp.participant_id
+       left join schools s on s.id = p.school_id
+       left join regions rg on rg.id = s.region_id
+       left join regions prov on prov.id = rg.parent_id
+       left join lateral (
+         select coalesce(sum(dv.points), 0) as points
+         from daily_votes dv
+         where dv.participant_id = rp.participant_id
+           and dv.round_id = rp.round_id
+       ) pt on true
+       where rp.status = 'lolos'
+         and ($1::uuid is null or r.id = $1)
+       order by r.sequence, points desc, p.name`,
+      [roundId ?? null],
+    );
+  }
+
+  /**
    * Tutup gelombang + promosi + gulir otomatis ke gelombang berikutnya.
    *
    * 1. Sync keanggotaan (semua peserta aktif ikut dinilai).
@@ -402,8 +451,12 @@ export class RoundsService {
         .getRepository(Round)
         .update({ status: "active" }, { status: "draft" });
 
+      // Gelombang penutup: event berakhir di sini. Tak ada gelombang lanjutan,
+      // yang gugur tidak digulirkan ke mana pun.
+      if (round.isFinal) return;
+
       // Gelombang berikutnya = draft dengan sequence terdekat > sequence ini.
-      // Kalau tak ada (mis. sudah gelombang terakhir), bikin 'Lanjutan' baru.
+      // Kalau tak ada, bikin 'Lanjutan' baru (kecuali gelombang penutup di atas).
       const rr = em.getRepository(Round);
       let next = await rr
         .createQueryBuilder("r")
@@ -444,19 +497,19 @@ export class RoundsService {
       );
 
       // Peserta aktif (termasuk pendaftar baru) yang BELUM ikut → auto.
-      // Catatan: peserta lolos TIDAK ikut gelombang berikutnya.
+      // Yang sudah lolos DI GELOMBANG MANA PUN tidak ikut lagi: sudah lolos
+      // berarti berhenti berkompetisi, dan tak bisa lolos dua kali.
       await em.query(
         `insert into round_participants (round_id, participant_id, status)
-         select $2, p.id, 'active'
+         select $1, p.id, 'active'
          from participants p
          where p.status = 'active'
            and not exists (
              select 1 from round_participants rl
-             where rl.round_id = $1 and rl.participant_id = p.id
-               and rl.status = 'lolos'
+             where rl.participant_id = p.id and rl.status = 'lolos'
            )
          on conflict (round_id, participant_id) do nothing`,
-        [id, nextRoundId],
+        [nextRoundId],
       );
     });
     return { ok: true, next_round_id: nextRoundId };

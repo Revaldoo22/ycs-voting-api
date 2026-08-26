@@ -22,6 +22,10 @@ const MESSAGES: Record<string, [string, number]> = {
   EVENTCLOSED: ["Event sedang ditutup.", 409],
   ROUND_ENDED: ["Periode gelombang ini sudah berakhir. Tunggu gelombang berikutnya.", 409],
   NOTFOUND: ["Peserta tidak ditemukan.", 400],
+  ALREADY_QUALIFIED: [
+    "Peserta ini sudah lolos ke babak berikutnya, jadi tidak menerima dukungan lagi.",
+    409,
+  ],
   SELFVOTE: ["Kamu tidak bisa mendukung dirimu sendiri.", 409],
   PHONE_NAME: [
     "Nomor WhatsApp ini sudah terdaftar dengan nama lain. Gunakan nama yang sama.",
