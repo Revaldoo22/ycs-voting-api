@@ -21,7 +21,7 @@ import {
   MaxLength,
 } from "class-validator";
 import { DataSource, EntityManager } from "typeorm";
-import { DailyVote, Participant, Profile } from "../../database/entities";
+import { DailyVote, Participant, Profile, Rejection } from "../../database/entities";
 import { JwtGuard } from "../../common/guards/jwt.guard";
 import { RolesGuard } from "../../common/guards/roles.guard";
 import { Roles } from "../../common/decorators/roles.decorator";
@@ -108,12 +108,46 @@ export class VotesAdminController {
     );
   }
 
+  /** Riwayat penolakan (arsip). Baris asli sudah dihapus saat ditolak. */
+  @Get("rejections")
+  rejections(@Query("search") search?: string) {
+    const q = search?.trim() || null;
+    return this.db.query(
+      `select r.id, r.reason, r.voter_name, r.voter_email, r.voter_phone,
+              r.voter_school, r.proofs as follow_proofs,
+              r.submitted_at as created_at, r.created_at as rejected_at,
+              'rejected' as status, 0 as points,
+              null::text as voter_status, null::text as voter_class,
+              json_build_object(
+                'id', r.participant_id, 'name',
+                coalesce(r.participant_name, 'Peserta dihapus'),
+                'schools', case when r.participant_school is null then null
+                                else json_build_object(
+                                  'name', r.participant_school) end
+              ) as participants
+       from rejections r
+       where r.kind = $1
+         and ($2::text is null or (
+              r.voter_name ilike '%' || $2 || '%'
+           or r.voter_email ilike '%' || $2 || '%'
+           or r.voter_phone ilike '%' || $2 || '%'
+           or r.voter_school ilike '%' || $2 || '%'
+           or r.participant_name ilike '%' || $2 || '%'
+           or r.participant_school ilike '%' || $2 || '%'
+         ))
+       order by r.created_at desc
+       limit 500`,
+      ["vote", q],
+    );
+  }
+
   @Get("counts")
   async counts() {
     const rows = await this.db.query(
       `select
          count(*) filter (where status = 'pending')::int  as pending,
-         count(*) filter (where status = 'approved')::int as approved
+         count(*) filter (where status = 'approved')::int as approved,
+         count(*) filter (where status = 'rejected')::int as rejected
        from daily_votes
        where is_bot = false and follow_proofs is not null`,
     );
@@ -190,6 +224,35 @@ export class VotesAdminController {
               " Kamu bisa vote lagi dengan bukti yang benar.",
           },
         );
+
+        // Arsipkan dulu: baris vote hilang setelah ini, jadi tanpa arsip
+        // penolakan tak punya jejak yang bisa ditinjau admin.
+        const sch = await em
+          .getRepository(Participant)
+          .createQueryBuilder("p")
+          .leftJoin("schools", "s", "s.id = p.school_id")
+          .select("s.name", "school")
+          .where("p.id = :id", { id: vote.participantId })
+          .getRawOne<{ school: string | null }>();
+        await em.getRepository(Rejection).insert({
+          kind: "vote",
+          reason: reason?.trim() || null,
+          voterName: vote.voterName,
+          voterEmail: vote.voterEmail,
+          voterPhone: vote.voterPhone,
+          voterSchool: vote.voterSchool,
+          participantId: vote.participantId,
+          participantName: participant?.name ?? null,
+          participantSchool: sch?.school ?? null,
+          // followProofs bisa array (format baru) atau objek (format lama);
+          // arsip menyimpannya sebagai array URL.
+          proofs: Array.isArray(vote.followProofs)
+            ? vote.followProofs
+            : vote.followProofs
+              ? Object.values(vote.followProofs)
+              : null,
+          submittedAt: vote.createdAt,
+        });
 
         await em.getRepository(DailyVote).delete({ id });
         return { ok: true, removed: true };

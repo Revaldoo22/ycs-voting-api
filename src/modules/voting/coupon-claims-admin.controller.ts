@@ -21,7 +21,7 @@ import {
   MaxLength,
 } from "class-validator";
 import { DataSource, EntityManager } from "typeorm";
-import { CouponClaim } from "../../database/entities";
+import { CouponClaim, Rejection } from "../../database/entities";
 import { JwtGuard } from "../../common/guards/jwt.guard";
 import { RolesGuard } from "../../common/guards/roles.guard";
 import { Roles } from "../../common/decorators/roles.decorator";
@@ -96,12 +96,37 @@ export class CouponClaimsAdminController {
     );
   }
 
+  /** Riwayat penolakan (arsip). Baris asli sudah dihapus saat ditolak. */
+  @Get("rejections")
+  rejections(@Query("search") search?: string) {
+    const q = search?.trim() || null;
+    return this.db.query(
+      `select r.id, r.reason, r.voter_name, r.voter_email, r.voter_phone,
+              coalesce(r.proofs, '[]'::jsonb) as proofs,
+              r.submitted_at as created_at, r.created_at as rejected_at,
+              'rejected' as status, null::uuid as profile_id,
+              null::timestamptz as reviewed_at
+       from rejections r
+       where r.kind = $1
+         and ($2::text is null or (
+              r.voter_name ilike '%' || $2 || '%'
+           or r.voter_email ilike '%' || $2 || '%'
+           or r.voter_phone ilike '%' || $2 || '%'
+           or r.voter_school ilike '%' || $2 || '%'
+         ))
+       order by r.created_at desc
+       limit 500`,
+      ["coupon_claim", q],
+    );
+  }
+
   @Get("counts")
   async counts() {
     const rows = await this.db.query(
       `select
          count(*) filter (where status = 'pending')::int  as pending,
-         count(*) filter (where status = 'approved')::int as approved
+         count(*) filter (where status = 'approved')::int as approved,
+         count(*) filter (where status = 'rejected')::int as rejected
        from coupon_claims`,
     );
     return rows[0];
@@ -170,6 +195,18 @@ export class CouponClaimsAdminController {
             " Kamu bisa klaim lagi dengan bukti yang benar.",
         },
       );
+      // Arsipkan dulu: baris klaim hilang setelah ini, jadi tanpa arsip
+      // penolakan tak punya jejak yang bisa ditinjau admin.
+      await em.getRepository(Rejection).insert({
+        kind: "coupon_claim",
+        reason: reason?.trim() || null,
+        voterName: voter?.name ?? null,
+        voterEmail: voter?.email ?? null,
+        voterPhone: voter?.phone_number ?? null,
+        proofs: claim.proofs ?? null,
+        submittedAt: claim.createdAt,
+      });
+
       await em.getRepository(CouponClaim).delete({ id });
       return { ok: true, removed: true };
     }
