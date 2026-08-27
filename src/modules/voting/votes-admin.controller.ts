@@ -144,12 +144,16 @@ export class VotesAdminController {
   @Get("counts")
   async counts() {
     const rows = await this.db.query(
+      // rejected TIDAK dari daily_votes: baris vote dihapus saat ditolak
+      // (unique index dibebaskan), jejaknya ada di arsip rejections.
       `select
-         count(*) filter (where status = 'pending')::int  as pending,
-         count(*) filter (where status = 'approved')::int as approved,
-         count(*) filter (where status = 'rejected')::int as rejected
-       from daily_votes
-       where is_bot = false and follow_proofs is not null`,
+         (select count(*) filter (where status = 'pending')
+            from daily_votes
+            where is_bot = false and follow_proofs is not null)::int as pending,
+         (select count(*) filter (where status = 'approved')
+            from daily_votes
+            where is_bot = false and follow_proofs is not null)::int as approved,
+         (select count(*) from rejections where kind = 'vote')::int as rejected`,
     );
     return rows[0];
   }

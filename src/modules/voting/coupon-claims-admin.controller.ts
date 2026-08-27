@@ -123,11 +123,15 @@ export class CouponClaimsAdminController {
   @Get("counts")
   async counts() {
     const rows = await this.db.query(
+      // rejected TIDAK dari coupon_claims: baris klaim dihapus saat ditolak,
+      // jejaknya ada di arsip rejections.
       `select
-         count(*) filter (where status = 'pending')::int  as pending,
-         count(*) filter (where status = 'approved')::int as approved,
-         count(*) filter (where status = 'rejected')::int as rejected
-       from coupon_claims`,
+         (select count(*) filter (where status = 'pending')
+            from coupon_claims)::int as pending,
+         (select count(*) filter (where status = 'approved')
+            from coupon_claims)::int as approved,
+         (select count(*) from rejections
+            where kind = 'coupon_claim')::int as rejected`,
     );
     return rows[0];
   }
