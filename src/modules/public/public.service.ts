@@ -68,7 +68,8 @@ export class PublicService {
               exists (
                 select 1 from round_participants rl
                 where rl.participant_id = p.id and rl.status = 'lolos'
-              ) as qualified
+              ) as qualified,
+              p.golden_buzzer
        from participants p
        left join schools s on s.id = p.school_id
        left join regions reg on reg.id = s.region_id
@@ -76,6 +77,26 @@ export class PublicService {
        where ($1::uuid is null or p.school_id = $1)
        order by p.total_points desc`,
       [schoolId ?? null],
+    );
+  }
+
+  /**
+   * Daftar Golden Buzzer, terbaru dulu. Peserta ini langsung lolos, jadi
+   * tidak lagi menerima vote.
+   */
+  goldenBuzzers() {
+    return this.db.query(
+      `select p.id, p.name, p.photo_url, p.description,
+              p.total_points::int as total_points, p.golden_buzzer_at,
+              p.school_id, coalesce(s.name, 'Tanpa Sekolah') as school_name,
+              coalesce(rg.name, 'Tanpa Kabupaten') as region_name,
+              coalesce(prov.name, 'Tanpa Provinsi') as province_name
+       from participants p
+       left join schools s on s.id = p.school_id
+       left join regions rg on rg.id = s.region_id
+       left join regions prov on prov.id = rg.parent_id
+       where p.golden_buzzer = true and p.status = 'active'
+       order by p.golden_buzzer_at desc nulls last, p.name`,
     );
   }
 
@@ -102,7 +123,8 @@ export class PublicService {
               exists (
                 select 1 from round_participants rl
                 where rl.participant_id = p.id and rl.status = 'lolos'
-              ) as qualified
+              ) as qualified,
+              p.golden_buzzer
        from participants p
        left join schools s on s.id = p.school_id
        where p.id = $1`,

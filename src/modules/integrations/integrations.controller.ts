@@ -36,6 +36,7 @@ import {
   School,
 } from "../../database/entities";
 import { ApiKeyGuard } from "../../common/guards/api-key.guard";
+import { RoundsService } from "../rounds/rounds.service";
 import { normalizePhone } from "../../common/utils/normalize";
 import { SchoolsService } from "../schools/schools.service";
 import { AdminService } from "../admin/admin.service";
@@ -260,6 +261,7 @@ export class IntegrationsController {
     @InjectRepository(ParticipantContent)
     private readonly contents: Repository<ParticipantContent>,
     private readonly schools: SchoolsService,
+    private readonly rounds: RoundsService,
     private readonly admin: AdminService,
   ) {}
 
@@ -655,6 +657,20 @@ export class IntegrationsController {
   private clampLimit(raw?: string) {
     const n = Number(raw ?? 50);
     return Number.isFinite(n) ? Math.min(Math.max(Math.trunc(n), 1), 200) : 50;
+  }
+
+  /**
+   * Peserta yang sudah aman: Golden Buzzer dan/atau peserta lolos gelombang.
+   *   ?source=all|golden_buzzer|round   (default all)
+   *   ?round=Grup A                     (nama gelombang atau UUID)
+   */
+  @Get("winners")
+  async winners(
+    @Query("source") source?: string,
+    @Query("round") round?: string,
+  ) {
+    const rows = (await this.rounds.winners({ source, round })) as unknown[];
+    return { count: rows.length, winners: rows };
   }
 
   /** Peringkat peserta by total poin (nasional). */

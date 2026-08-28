@@ -42,6 +42,12 @@ export class PublicController {
     return this.pub.participants(schoolId || undefined);
   }
 
+  /** Daftar Golden Buzzer untuk halaman publik. */
+  @Get("golden-buzzer")
+  goldenBuzzers() {
+    return this.pub.goldenBuzzers();
+  }
+
   @Get("leaderboard")
   leaderboard(
     @Query("limit", new DefaultValuePipe(50), ParseIntPipe) limit: number,

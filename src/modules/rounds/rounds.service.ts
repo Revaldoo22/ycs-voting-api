@@ -4,7 +4,7 @@ import {
   NotFoundException,
 } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
-import { DataSource, Repository } from "typeorm";
+import { DataSource, EntityManager, Repository } from "typeorm";
 import { Round, RoundParticipant } from "../../database/entities";
 
 /** Batas atas top_n. Semifinal global bisa ratusan (mis. 200 peserta). */
@@ -43,14 +43,15 @@ export class RoundsService {
    * peserta yang sudah tercatat.
    */
   private async syncActiveParticipants(roundId: string): Promise<void> {
-    // Peserta yang sudah lolos (di gelombang mana pun) tidak ikut lagi:
-    // 1 peserta hanya bisa lolos sekali, dan yang sudah lolos berhenti
-    // berkompetisi.
+    // Peserta yang sudah lolos (di gelombang mana pun) atau ditandai Golden
+    // Buzzer tidak ikut lagi: 1 peserta hanya bisa lolos sekali, dan yang
+    // sudah lolos berhenti berkompetisi.
     await this.db.query(
       `insert into round_participants (round_id, participant_id, status)
        select $1, p.id, 'active'
        from participants p
        where p.status = 'active'
+         and p.golden_buzzer = false
          and not exists (
            select 1 from round_participants rl
            where rl.participant_id = p.id and rl.status = 'lolos'
@@ -362,6 +363,260 @@ export class RoundsService {
    * peserta muncul sekali per gelombang yang dia lolosi (normalnya satu).
    * Hanya gelombang yang sudah ditutup yang punya hasil final.
    */
+  /**
+   * Tukar satu peserta LOLOS dengan satu peserta yang sedang berada di
+   * gelombang berikutnya (yang gugur/lanjut). Dipakai panitia untuk merevisi
+   * hasil tanpa harus membuka ulang gelombang.
+   *
+   * promoteId  = peserta di gelombang berikutnya yang dinaikkan jadi lolos
+   * demoteId   = peserta lolos yang diturunkan jadi gugur
+   *
+   * Poin menyesuaikan sesuai aturan penutupan normal:
+   *  - yang dinaikkan: baris di gelombang berikutnya DIHAPUS (dia berhenti
+   *    berkompetisi, sama seperti peserta lolos lainnya)
+   *  - yang diturunkan: status jadi 'gugur' dan dimasukkan ke gelombang
+   *    berikutnya dengan carry = floor(50% poin akhirnya di gelombang ini)
+   */
+  async swapQualified(roundId: string, promoteId: string, demoteId: string) {
+    return this.db.transaction((em) =>
+      this.swapOne(em, roundId, promoteId, demoteId),
+    );
+  }
+
+  /**
+   * Inti pertukaran satu pasang. Menerima EntityManager supaya bisa dipakai
+   * batch: satu transaksi membungkus semua pasang, jadi kalau ada yang gagal
+   * seluruhnya dibatalkan.
+   */
+  private async swapOne(
+    em: EntityManager,
+    roundId: string,
+    promoteId: string,
+    demoteId: string,
+  ) {
+    if (promoteId === demoteId) {
+      throw new BadRequestException("Pilih dua peserta yang berbeda.");
+    }
+    const round = await this.mustExist(roundId);
+
+    // Gelombang berikutnya = sequence terdekat di atas gelombang ini. Bisa
+    // null kalau ini gelombang penutup.
+    const [next]: { id: string; name: string }[] = await em.query(
+      `select id, name from rounds
+        where sequence > $1
+        order by sequence, created_at
+        limit 1`,
+      [round.sequence],
+    );
+
+    {
+      // Yang diturunkan harus benar-benar berstatus lolos di gelombang ini.
+      const [demote]: { id: string; points: number; name: string }[] =
+        await em.query(
+          `select rp.id, p.name,
+                  (rp.carry_points + coalesce(pt.points, 0))::int as points
+             from round_participants rp
+             join participants p on p.id = rp.participant_id
+             left join lateral (
+               select coalesce(sum(dv.points), 0) as points
+               from daily_votes dv
+               where dv.participant_id = rp.participant_id
+                 and dv.round_id = $1
+             ) pt on true
+            where rp.round_id = $1 and rp.participant_id = $2
+              and rp.status = 'lolos'`,
+          [roundId, demoteId],
+        );
+      if (!demote) {
+        throw new BadRequestException(
+          "Peserta yang diturunkan tidak berstatus lolos di gelombang ini.",
+        );
+      }
+
+      // Yang dinaikkan harus tercatat di gelombang ini (apa pun statusnya
+      // selain lolos), supaya tidak menaikkan orang dari luar kompetisi.
+      const [promote]: { id: string; name: string; status: string }[] =
+        await em.query(
+          `select rp.id, p.name, rp.status
+             from round_participants rp
+             join participants p on p.id = rp.participant_id
+            where rp.round_id = $1 and rp.participant_id = $2`,
+          [roundId, promoteId],
+        );
+      if (!promote) {
+        throw new BadRequestException(
+          "Peserta yang dinaikkan tidak terdaftar di gelombang ini.",
+        );
+      }
+      if (promote.status === "lolos") {
+        throw new BadRequestException("Peserta itu sudah lolos.");
+      }
+
+      // Tukar status di gelombang ini.
+      await em.query(
+        `update round_participants set status = 'lolos'
+          where round_id = $1 and participant_id = $2`,
+        [roundId, promoteId],
+      );
+      await em.query(
+        `update round_participants set status = 'gugur'
+          where round_id = $1 and participant_id = $2`,
+        [roundId, demoteId],
+      );
+
+      if (next) {
+        // Yang dinaikkan berhenti berkompetisi → keluar dari gelombang lanjut.
+        await em.query(
+          `delete from round_participants
+            where round_id = $1 and participant_id = $2`,
+          [next.id, promoteId],
+        );
+        // Yang diturunkan masuk gelombang lanjut dengan carry 50%, aturan
+        // yang sama dengan penutupan normal.
+        await em.query(
+          `insert into round_participants
+             (round_id, participant_id, status, carry_points)
+           values ($1, $2, 'active', $3)
+           on conflict (round_id, participant_id)
+           do update set status = 'active', carry_points = excluded.carry_points`,
+          [next.id, demoteId, Math.floor(demote.points * 0.5)],
+        );
+      }
+
+      return {
+        ok: true,
+        promoted: promote.name,
+        demoted: demote.name,
+        next_round: next?.name ?? null,
+        carry_points: Math.floor(demote.points * 0.5),
+      };
+    }
+  }
+
+  /**
+   * Tukar BANYAK pasang sekaligus. Jumlah yang dinaikkan harus sama dengan
+   * yang diturunkan supaya kuota lolos gelombang tidak berubah.
+   *
+   * Dijalankan berurutan dalam satu transaksi: kalau satu pasang gagal,
+   * semuanya dibatalkan, jadi tak ada kondisi setengah tertukar.
+   */
+  async swapQualifiedBulk(
+    roundId: string,
+    promoteIds: string[],
+    demoteIds: string[],
+  ) {
+    const promote = [...new Set(promoteIds)];
+    const demote = [...new Set(demoteIds)];
+    if (promote.length === 0 || demote.length === 0) {
+      throw new BadRequestException("Pilih peserta di kedua sisi.");
+    }
+    if (promote.length !== demote.length) {
+      throw new BadRequestException(
+        `Jumlah harus sama: ${promote.length} dinaikkan vs ${demote.length} diturunkan.`,
+      );
+    }
+    if (promote.some((id) => demote.includes(id))) {
+      throw new BadRequestException(
+        "Ada peserta yang dipilih di kedua sisi sekaligus.",
+      );
+    }
+
+    return this.db.transaction(async (em) => {
+      const results = [];
+      for (let i = 0; i < promote.length; i++) {
+        results.push(await this.swapOne(em, roundId, promote[i], demote[i]));
+      }
+      return { ok: true, swapped: results.length, results };
+    });
+  }
+
+  /**
+   * SATU pintu untuk mengambil peserta yang sudah "aman": Golden Buzzer,
+   * peserta lolos gelombang tertentu, atau keduanya sekaligus.
+   *
+   * source:
+   *  - 'all'           (default) Golden Buzzer + semua peserta lolos
+   *  - 'golden_buzzer' hanya Golden Buzzer
+   *  - 'round'         hanya peserta lolos; pakai `round` untuk memilih
+   *                    gelombangnya (nama seperti 'Grup A' atau UUID),
+   *                    kosongkan untuk semua gelombang.
+   *
+   * Tiap baris punya kolom `via` ('golden_buzzer' | 'round') dan `round_name`
+   * supaya pemakai API tahu peserta itu lolos lewat jalur mana.
+   */
+  winners(opts: { source?: string; round?: string } = {}) {
+    const source = opts.source ?? "all";
+    if (!["all", "golden_buzzer", "round"].includes(source)) {
+      throw new BadRequestException(
+        "source harus 'all', 'golden_buzzer', atau 'round'.",
+      );
+    }
+    const roundKey = opts.round?.trim() || null;
+    // Filter gelombang menerima UUID atau nama (mis. 'Grup A'), biar API
+    // enak dipakai tanpa harus tahu id-nya.
+    const isUuid =
+      !!roundKey &&
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+        roundKey,
+      );
+
+    return this.db.query(
+      `with golden as (
+         select 'golden_buzzer'::text as via,
+                p.id as participant_id, p.name as participant_name,
+                p.photo_url, p.description,
+                p.school_id, coalesce(s.name, 'Tanpa Sekolah') as school_name,
+                coalesce(rg.name, 'Tanpa Kabupaten') as region_name,
+                coalesce(prov.name, 'Tanpa Provinsi') as province_name,
+                null::uuid as round_id, null::text as round_name,
+                null::int as sequence,
+                p.total_points::int as points,
+                p.golden_buzzer_at as decided_at
+         from participants p
+         left join schools s on s.id = p.school_id
+         left join regions rg on rg.id = s.region_id
+         left join regions prov on prov.id = rg.parent_id
+         where p.golden_buzzer = true and p.status = 'active'
+           and $1 in ('all', 'golden_buzzer')
+       ),
+       lolos as (
+         select 'round'::text as via,
+                p.id as participant_id, p.name as participant_name,
+                p.photo_url, p.description,
+                p.school_id, coalesce(s.name, 'Tanpa Sekolah') as school_name,
+                coalesce(rg.name, 'Tanpa Kabupaten') as region_name,
+                coalesce(prov.name, 'Tanpa Provinsi') as province_name,
+                r.id as round_id, r.name as round_name, r.sequence,
+                (rp.carry_points + coalesce(pt.points, 0))::int as points,
+                r.ends_at as decided_at
+         from round_participants rp
+         join rounds r on r.id = rp.round_id
+         join participants p on p.id = rp.participant_id
+         left join schools s on s.id = p.school_id
+         left join regions rg on rg.id = s.region_id
+         left join regions prov on prov.id = rg.parent_id
+         left join lateral (
+           select coalesce(sum(dv.points), 0) as points
+           from daily_votes dv
+           where dv.participant_id = rp.participant_id
+             and dv.round_id = rp.round_id
+         ) pt on true
+         where rp.status = 'lolos'
+           and $1 in ('all', 'round')
+           and (
+             $2::text is null
+             or ($3::boolean and r.id::text = $2)
+             or (not $3::boolean and lower(r.name) = lower($2))
+           )
+       )
+       select * from golden
+       union all
+       select * from lolos
+       order by sequence nulls first, points desc, participant_name`,
+      [source, roundKey, isUuid],
+    );
+  }
+
   qualified(roundId?: string) {
     return this.db.query(
       `select rp.participant_id, p.name as participant_name, p.photo_url,
@@ -497,13 +752,14 @@ export class RoundsService {
       );
 
       // Peserta aktif (termasuk pendaftar baru) yang BELUM ikut → auto.
-      // Yang sudah lolos DI GELOMBANG MANA PUN tidak ikut lagi: sudah lolos
-      // berarti berhenti berkompetisi, dan tak bisa lolos dua kali.
+      // Yang sudah lolos DI GELOMBANG MANA PUN atau Golden Buzzer tidak ikut
+      // lagi: sudah lolos berarti berhenti berkompetisi.
       await em.query(
         `insert into round_participants (round_id, participant_id, status)
          select $1, p.id, 'active'
          from participants p
          where p.status = 'active'
+           and p.golden_buzzer = false
            and not exists (
              select 1 from round_participants rl
              where rl.participant_id = p.id and rl.status = 'lolos'

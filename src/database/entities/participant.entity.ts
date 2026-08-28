@@ -50,6 +50,18 @@ export class Participant {
   @Column({ type: "text", default: "active" })
   status!: ParticipantStatus;
 
+  /**
+   * Dipilih panitia sebagai Golden Buzzer: langsung lolos tanpa menunggu
+   * hasil gelombang. Konsekuensinya sama dengan peserta lolos, yaitu berhenti
+   * menerima vote dan tidak ikut gelombang berikutnya.
+   */
+  @Column({ name: "golden_buzzer", type: "boolean", default: false })
+  goldenBuzzer!: boolean;
+
+  /** Kapan panitia menandainya. Null = bukan golden buzzer. */
+  @Column({ name: "golden_buzzer_at", type: "timestamptz", nullable: true })
+  goldenBuzzerAt!: Date | null;
+
   @CreateDateColumn({ name: "created_at", type: "timestamptz" })
   createdAt!: Date;
 }

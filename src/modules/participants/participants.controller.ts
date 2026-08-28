@@ -10,6 +10,7 @@ import {
   UseGuards,
 } from "@nestjs/common";
 import {
+  IsBoolean,
   IsIn,
   IsOptional,
   IsString,
@@ -42,6 +43,12 @@ import { JwtGuard } from "../../common/guards/jwt.guard";
 import { RolesGuard } from "../../common/guards/roles.guard";
 import { Roles } from "../../common/decorators/roles.decorator";
 
+class GoldenBuzzerDto {
+  /** true = tandai Golden Buzzer, false = lepas tandanya. */
+  @IsBoolean()
+  on!: boolean;
+}
+
 /** Old path parity: /api/admin/participants. */
 @Controller("admin/participants")
 @UseGuards(JwtGuard, RolesGuard)
@@ -56,6 +63,21 @@ export class ParticipantsController {
   @Get()
   list() {
     return this.participants.list();
+  }
+
+  /** Daftar Golden Buzzer. Sebelum @Patch(":id") agar tak tertangkap UUID. */
+  @Get("golden-buzzer")
+  goldenBuzzers() {
+    return this.participants.goldenBuzzers();
+  }
+
+  /** Tandai / lepas Golden Buzzer (langsung lolos, vote ditutup). */
+  @Patch(":id/golden-buzzer")
+  setGoldenBuzzer(
+    @Param("id", ParseUUIDPipe) id: string,
+    @Body() dto: GoldenBuzzerDto,
+  ) {
+    return this.participants.setGoldenBuzzer(id, dto.on);
   }
 
   @Post()

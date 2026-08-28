@@ -144,6 +144,9 @@ export class VotesService {
     });
     if (!participant) throw new VoteError("NOTFOUND");
 
+    // Golden Buzzer: sudah langsung lolos, tak perlu dukungan lagi.
+    if (participant.goldenBuzzer) throw new VoteError("GOLDEN_BUZZER");
+
     // Peserta yang sudah lolos di gelombang mana pun tak ikut berkompetisi
     // lagi, jadi vote ke dia ditolak (poinnya sudah final).
     const [qualified] = (await this.dataSource.query(

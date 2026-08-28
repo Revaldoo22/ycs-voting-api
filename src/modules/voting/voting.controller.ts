@@ -22,6 +22,10 @@ const MESSAGES: Record<string, [string, number]> = {
   EVENTCLOSED: ["Event sedang ditutup.", 409],
   ROUND_ENDED: ["Periode gelombang ini sudah berakhir. Tunggu gelombang berikutnya.", 409],
   NOTFOUND: ["Peserta tidak ditemukan.", 400],
+  GOLDEN_BUZZER: [
+    "Peserta ini sudah jadi Golden Buzzer dan langsung lolos, jadi tidak menerima dukungan lagi.",
+    409,
+  ],
   ALREADY_QUALIFIED: [
     "Peserta ini sudah lolos ke babak berikutnya, jadi tidak menerima dukungan lagi.",
     409,

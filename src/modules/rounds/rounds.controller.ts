@@ -11,6 +11,9 @@ import {
   UseGuards,
 } from "@nestjs/common";
 import {
+  ArrayMaxSize,
+  ArrayMinSize,
+  IsArray,
   IsBoolean,
   IsIn,
   IsInt,
@@ -120,6 +123,22 @@ class UpdateRoundDto {
   is_final?: boolean;
 }
 
+class SwapQualifiedDto {
+  /** Peserta di gelombang berikutnya yang dinaikkan jadi lolos. */
+  @IsArray()
+  @ArrayMinSize(1)
+  @ArrayMaxSize(200)
+  @IsUUID("4", { each: true })
+  promote_ids!: string[];
+
+  /** Peserta lolos yang diturunkan jadi gugur. Jumlahnya harus sama. */
+  @IsArray()
+  @ArrayMinSize(1)
+  @ArrayMaxSize(200)
+  @IsUUID("4", { each: true })
+  demote_ids!: string[];
+}
+
 class AddParticipantDto {
   @IsUUID()
   participant_id!: string;
@@ -169,9 +188,31 @@ export class RoundsController {
   }
 
   /** Semua peserta lolos (opsional filter satu gelombang) untuk ekspor. */
+  /**
+   * Peserta yang sudah aman: Golden Buzzer dan/atau peserta lolos gelombang.
+   *   ?source=all|golden_buzzer|round   (default all)
+   *   ?round=Grup A                     (nama gelombang atau UUID)
+   */
+  @Get("winners")
+  winners(
+    @Query("source") source?: string,
+    @Query("round") round?: string,
+  ) {
+    return this.rounds.winners({ source, round });
+  }
+
   @Get("qualified")
   qualified(@Query("round_id") roundId?: string) {
     return this.rounds.qualified(roundId || undefined);
+  }
+
+  /** Tukar peserta lolos dengan peserta di gelombang berikutnya. */
+  @Post(":id/swap-qualified")
+  swapQualified(
+    @Param("id", ParseUUIDPipe) id: string,
+    @Body() dto: SwapQualifiedDto,
+  ) {
+    return this.rounds.swapQualifiedBulk(id, dto.promote_ids, dto.demote_ids);
   }
 
   @Get(":id/standings")
@@ -268,6 +309,19 @@ export class PublicRoundsController {
   }
 
   /** Peserta yang lolos, publik. Kosongkan round_id untuk semua gelombang. */
+  /**
+   * Peserta yang sudah aman: Golden Buzzer dan/atau peserta lolos gelombang.
+   *   ?source=all|golden_buzzer|round   (default all)
+   *   ?round=Grup A                     (nama gelombang atau UUID)
+   */
+  @Get("winners")
+  winners(
+    @Query("source") source?: string,
+    @Query("round") round?: string,
+  ) {
+    return this.rounds.winners({ source, round });
+  }
+
   @Get("qualified")
   qualified(@Query("round_id") roundId?: string) {
     return this.rounds.qualified(roundId || undefined);

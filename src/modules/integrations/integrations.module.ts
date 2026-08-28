@@ -8,6 +8,7 @@ import {
 } from "../../database/entities";
 import { SchoolsModule } from "../schools/schools.module";
 import { AdminModule } from "../admin/admin.module";
+import { RoundsModule } from "../rounds/rounds.module";
 import { IntegrationsController } from "./integrations.controller";
 import { ApiKeyGuard } from "../../common/guards/api-key.guard";
 
@@ -16,6 +17,7 @@ import { ApiKeyGuard } from "../../common/guards/api-key.guard";
     TypeOrmModule.forFeature([Participant, Profile, Region, ParticipantContent]),
     SchoolsModule,
     AdminModule,
+    RoundsModule,
   ],
   controllers: [IntegrationsController],
   providers: [ApiKeyGuard],

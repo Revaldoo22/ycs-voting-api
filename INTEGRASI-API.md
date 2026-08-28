@@ -13,8 +13,9 @@ perlu menyimpan ID apa pun dari sini.
 
 > **Cukup pakai 2 endpoint utama:** (1) Sync Peserta dan (2) Sync Konten —
 > keduanya by `email`. Untuk web app kedua: tambah (7) Data Voter per Peserta
-> dan (8) Tukar Poin & Spin Hadiah. Endpoint di bagian *Legacy* hanya untuk
-> kompatibilitas.
+> dan (8) Tukar Poin & Spin Hadiah. Butuh daftar peserta yang sudah lolos atau
+> Golden Buzzer: (9) Peserta yang Sudah Lolos. Endpoint di bagian *Legacy*
+> hanya untuk kompatibilitas.
 
 ## Auth (wajib tiap request)
 
@@ -656,6 +657,87 @@ curl -X POST $BASE/rewards/spin \
 
 ---
 
+## 9. Peserta yang Sudah Lolos / Golden Buzzer
+
+**GET** `/winners`
+
+Satu pintu untuk mengambil peserta yang sudah **aman** — tidak lagi ikut adu
+voting. Ada dua jalur ke sana:
+
+- **Golden Buzzer** — dipilih langsung panitia, tanpa menunggu hasil gelombang.
+- **Lolos gelombang** — masuk peringkat teratas saat gelombang ditutup.
+
+Keduanya berhenti menerima vote, jadi kalau kalian menampilkan tombol dukung
+di web pendaftaran, matikan untuk peserta yang muncul di sini.
+
+| Query | Keterangan |
+|-------|-----------|
+| `source` | `all` (default) = Golden Buzzer + semua yang lolos, `golden_buzzer` = hanya Golden Buzzer, `round` = hanya yang lolos gelombang |
+| `round` | Filter satu gelombang. Terima **nama** (`Grup A`, tidak peka huruf besar-kecil) atau UUID. Kosong = semua gelombang. |
+
+```json
+{
+  "count": 2,
+  "winners": [
+    {
+      "via": "golden_buzzer",
+      "participant_id": "03db696e-4c7f-4013-8b89-3a40641142b2",
+      "participant_name": "Oka Pratama",
+      "photo_url": "https://cdn/foto.jpg",
+      "description": null,
+      "school_id": "…", "school_name": "SMA Negeri 3 Semarang",
+      "region_name": "Kota Semarang", "province_name": "Jawa Tengah",
+      "round_id": null, "round_name": null, "sequence": null,
+      "points": 885,
+      "decided_at": "2026-08-27T10:15:00.000Z"
+    },
+    {
+      "via": "round",
+      "participant_id": "a1b2c3d4-…",
+      "participant_name": "Falsa Syabana",
+      "photo_url": null,
+      "description": null,
+      "school_id": "…", "school_name": "SMAN 2 Purworejo",
+      "region_name": "Kab. Purworejo", "province_name": "Jawa Tengah",
+      "round_id": "…", "round_name": "Grup A", "sequence": 1,
+      "points": 92,
+      "decided_at": "2026-08-31T16:59:59.000Z"
+    }
+  ]
+}
+```
+
+| Field | Keterangan |
+|-------|-----------|
+| `via` | `golden_buzzer` atau `round` — **jalur** peserta itu jadi aman |
+| `round_id` / `round_name` / `sequence` | gelombang tempat dia lolos. **`null` untuk Golden Buzzer** karena dia lepas dari gelombang. |
+| `points` | poin akhir. Untuk `round` = poin bawaan + vote di gelombang itu; untuk `golden_buzzer` = total poin peserta. |
+| `decided_at` | kapan status itu ditetapkan: waktu ditandai Golden Buzzer, atau waktu gelombang ditutup. Bisa `null` kalau gelombangnya belum ditutup. |
+
+> **Satu peserta hanya bisa lolos sekali.** Yang sudah lolos tidak ikut
+> gelombang berikutnya, jadi tidak akan muncul dua kali di respon ini.
+
+> Urutannya: Golden Buzzer dulu (karena `sequence` null), lalu peserta lolos
+> diurutkan per gelombang, di dalam gelombang diurut poin tertinggi.
+
+```bash
+# Semua yang sudah aman
+curl "$BASE/winners" -H "X-Api-Key: $KEY"
+
+# Hanya Golden Buzzer
+curl "$BASE/winners?source=golden_buzzer" -H "X-Api-Key: $KEY"
+
+# Hanya yang lolos gelombang (semua gelombang)
+curl "$BASE/winners?source=round" -H "X-Api-Key: $KEY"
+
+# Yang lolos Grup A saja (spasi di-encode %20)
+curl "$BASE/winners?round=Grup%20A" -H "X-Api-Key: $KEY"
+curl "$BASE/winners?round=Grup%20B" -H "X-Api-Key: $KEY"
+curl "$BASE/winners?round=Grup%20C" -H "X-Api-Key: $KEY"
+```
+
+---
+
 ## Contoh cepat (curl)
 
 ```bash
@@ -682,6 +764,11 @@ curl $BASE/participants/by-email/budi@sekolah.sch.id -H "X-Api-Key: $KEY"
 
 # Daftar voter satu peserta (untuk web app kedua)
 curl "$BASE/participants/by-email/budi@sekolah.sch.id/voters?limit=20" -H "X-Api-Key: $KEY"
+
+# Peserta yang sudah aman (Golden Buzzer + lolos gelombang)
+curl "$BASE/winners" -H "X-Api-Key: $KEY"
+curl "$BASE/winners?source=golden_buzzer" -H "X-Api-Key: $KEY"
+curl "$BASE/winners?round=Grup%20A" -H "X-Api-Key: $KEY"
 
 # Lookup cepat by nama (spasi di-encode %20)
 curl "$BASE/participants/by-name/Budi%20Santoso" -H "X-Api-Key: $KEY"
@@ -720,6 +807,10 @@ curl -X POST $BASE/schools \
   100 poin / 10x spin, dan hadiah besar mati sampai admin menyalakannya. Harga
   spin pertama tiap akun juga lebih murah, jadi tanyakan
   `/rewards/spin-price/{email}` sebelum menampilkan harga.
+- **Peserta yang sudah lolos / Golden Buzzer** (bagian 9): mereka berhenti
+  menerima vote, jadi matikan tombol dukung untuk peserta yang muncul di
+  `GET /winners`. Kolom `via` memberi tahu jalurnya, dan Golden Buzzer selalu
+  ber-`round_id` null karena lepas dari gelombang.
 - API key salah/kurang → `401`. Data tidak valid → `400` (detail di field `message`).
 
 ---
