@@ -363,139 +363,117 @@ export class RoundsService {
    * peserta muncul sekali per gelombang yang dia lolosi (normalnya satu).
    * Hanya gelombang yang sudah ditutup yang punya hasil final.
    */
-  /**
-   * Tukar satu peserta LOLOS dengan satu peserta yang sedang berada di
-   * gelombang berikutnya (yang gugur/lanjut). Dipakai panitia untuk merevisi
-   * hasil tanpa harus membuka ulang gelombang.
-   *
-   * promoteId  = peserta di gelombang berikutnya yang dinaikkan jadi lolos
-   * demoteId   = peserta lolos yang diturunkan jadi gugur
-   *
-   * Poin menyesuaikan sesuai aturan penutupan normal:
-   *  - yang dinaikkan: baris di gelombang berikutnya DIHAPUS (dia berhenti
-   *    berkompetisi, sama seperti peserta lolos lainnya)
-   *  - yang diturunkan: status jadi 'gugur' dan dimasukkan ke gelombang
-   *    berikutnya dengan carry = floor(50% poin akhirnya di gelombang ini)
-   */
-  async swapQualified(roundId: string, promoteId: string, demoteId: string) {
-    return this.db.transaction((em) =>
-      this.swapOne(em, roundId, promoteId, demoteId),
-    );
-  }
-
-  /**
-   * Inti pertukaran satu pasang. Menerima EntityManager supaya bisa dipakai
-   * batch: satu transaksi membungkus semua pasang, jadi kalau ada yang gagal
-   * seluruhnya dibatalkan.
-   */
-  private async swapOne(
-    em: EntityManager,
-    roundId: string,
-    promoteId: string,
-    demoteId: string,
-  ) {
-    if (promoteId === demoteId) {
-      throw new BadRequestException("Pilih dua peserta yang berbeda.");
-    }
-    const round = await this.mustExist(roundId);
-
-    // Gelombang berikutnya = sequence terdekat di atas gelombang ini. Bisa
-    // null kalau ini gelombang penutup.
+  /** Gelombang setelah ini (sequence terdekat di atasnya). Null = penutup. */
+  private async nextRoundOf(em: EntityManager, sequence: number) {
     const [next]: { id: string; name: string }[] = await em.query(
       `select id, name from rounds
         where sequence > $1
         order by sequence, created_at
         limit 1`,
-      [round.sequence],
+      [sequence],
     );
-
-    {
-      // Yang diturunkan harus benar-benar berstatus lolos di gelombang ini.
-      const [demote]: { id: string; points: number; name: string }[] =
-        await em.query(
-          `select rp.id, p.name,
-                  (rp.carry_points + coalesce(pt.points, 0))::int as points
-             from round_participants rp
-             join participants p on p.id = rp.participant_id
-             left join lateral (
-               select coalesce(sum(dv.points), 0) as points
-               from daily_votes dv
-               where dv.participant_id = rp.participant_id
-                 and dv.round_id = $1
-             ) pt on true
-            where rp.round_id = $1 and rp.participant_id = $2
-              and rp.status = 'lolos'`,
-          [roundId, demoteId],
-        );
-      if (!demote) {
-        throw new BadRequestException(
-          "Peserta yang diturunkan tidak berstatus lolos di gelombang ini.",
-        );
-      }
-
-      // Yang dinaikkan harus tercatat di gelombang ini (apa pun statusnya
-      // selain lolos), supaya tidak menaikkan orang dari luar kompetisi.
-      const [promote]: { id: string; name: string; status: string }[] =
-        await em.query(
-          `select rp.id, p.name, rp.status
-             from round_participants rp
-             join participants p on p.id = rp.participant_id
-            where rp.round_id = $1 and rp.participant_id = $2`,
-          [roundId, promoteId],
-        );
-      if (!promote) {
-        throw new BadRequestException(
-          "Peserta yang dinaikkan tidak terdaftar di gelombang ini.",
-        );
-      }
-      if (promote.status === "lolos") {
-        throw new BadRequestException("Peserta itu sudah lolos.");
-      }
-
-      // Tukar status di gelombang ini.
-      await em.query(
-        `update round_participants set status = 'lolos'
-          where round_id = $1 and participant_id = $2`,
-        [roundId, promoteId],
-      );
-      await em.query(
-        `update round_participants set status = 'gugur'
-          where round_id = $1 and participant_id = $2`,
-        [roundId, demoteId],
-      );
-
-      if (next) {
-        // Yang dinaikkan berhenti berkompetisi → keluar dari gelombang lanjut.
-        await em.query(
-          `delete from round_participants
-            where round_id = $1 and participant_id = $2`,
-          [next.id, promoteId],
-        );
-        // Yang diturunkan masuk gelombang lanjut dengan carry 50%, aturan
-        // yang sama dengan penutupan normal.
-        await em.query(
-          `insert into round_participants
-             (round_id, participant_id, status, carry_points)
-           values ($1, $2, 'active', $3)
-           on conflict (round_id, participant_id)
-           do update set status = 'active', carry_points = excluded.carry_points`,
-          [next.id, demoteId, Math.floor(demote.points * 0.5)],
-        );
-      }
-
-      return {
-        ok: true,
-        promoted: promote.name,
-        demoted: demote.name,
-        next_round: next?.name ?? null,
-        carry_points: Math.floor(demote.points * 0.5),
-      };
-    }
+    return next ?? null;
   }
 
   /**
-   * Tukar BANYAK pasang sekaligus. Jumlah yang dinaikkan harus sama dengan
-   * yang diturunkan supaya kuota lolos gelombang tidak berubah.
+   * Turunkan satu peserta lolos jadi gugur, TANPA pengganti. Dipakai kalau
+   * panitia ingin mengurangi jumlah yang lolos (mis. 200 jadi 190), bukan
+   * menukar. Peserta masuk gelombang berikutnya dengan carry 50% poin
+   * akhirnya, aturan yang sama dengan penutupan normal.
+   */
+  private async demoteOne(
+    em: EntityManager,
+    roundId: string,
+    participantId: string,
+    nextRound: { id: string; name: string } | null,
+  ) {
+    const [row]: { name: string; points: number }[] = await em.query(
+      `select p.name,
+              (rp.carry_points + coalesce(pt.points, 0))::int as points
+         from round_participants rp
+         join participants p on p.id = rp.participant_id
+         left join lateral (
+           select coalesce(sum(dv.points), 0) as points
+           from daily_votes dv
+           where dv.participant_id = rp.participant_id
+             and dv.round_id = $1
+         ) pt on true
+        where rp.round_id = $1 and rp.participant_id = $2
+          and rp.status = 'lolos'`,
+      [roundId, participantId],
+    );
+    if (!row) {
+      throw new BadRequestException(
+        "Peserta yang diturunkan tidak berstatus lolos di gelombang ini.",
+      );
+    }
+
+    await em.query(
+      `update round_participants set status = 'gugur'
+        where round_id = $1 and participant_id = $2`,
+      [roundId, participantId],
+    );
+
+    const carry = Math.floor(row.points * 0.5);
+    if (nextRound) {
+      await em.query(
+        `insert into round_participants
+           (round_id, participant_id, status, carry_points)
+         values ($1, $2, 'active', $3)
+         on conflict (round_id, participant_id)
+         do update set status = 'active', carry_points = excluded.carry_points`,
+        [nextRound.id, participantId, carry],
+      );
+    }
+    return { name: row.name, carry_points: carry };
+  }
+
+  /**
+   * Naikkan satu peserta jadi lolos, TANPA menurunkan siapa pun. Dipakai
+   * kalau panitia ingin menambah jumlah yang lolos.
+   */
+  private async promoteOne(
+    em: EntityManager,
+    roundId: string,
+    participantId: string,
+    nextRound: { id: string; name: string } | null,
+  ) {
+    const [row]: { name: string; status: string }[] = await em.query(
+      `select p.name, rp.status
+         from round_participants rp
+         join participants p on p.id = rp.participant_id
+        where rp.round_id = $1 and rp.participant_id = $2`,
+      [roundId, participantId],
+    );
+    if (!row) {
+      throw new BadRequestException(
+        "Peserta yang dinaikkan tidak terdaftar di gelombang ini.",
+      );
+    }
+    if (row.status === "lolos") {
+      throw new BadRequestException(`${row.name} sudah lolos.`);
+    }
+
+    await em.query(
+      `update round_participants set status = 'lolos'
+        where round_id = $1 and participant_id = $2`,
+      [roundId, participantId],
+    );
+    // Yang lolos berhenti berkompetisi → keluar dari gelombang lanjut.
+    if (nextRound) {
+      await em.query(
+        `delete from round_participants
+          where round_id = $1 and participant_id = $2`,
+        [nextRound.id, participantId],
+      );
+    }
+    return { name: row.name };
+  }
+
+  /**
+   * Ubah daftar peserta lolos satu gelombang: naikkan, turunkan, atau
+   * dua-duanya sekaligus. Jumlah kedua sisi TIDAK harus sama, jadi panitia
+   * bisa sekadar mengurangi yang lolos (mis. 200 jadi 190) atau menambah.
    *
    * Dijalankan berurutan dalam satu transaksi: kalau satu pasang gagal,
    * semuanya dibatalkan, jadi tak ada kondisi setengah tertukar.
@@ -507,13 +485,8 @@ export class RoundsService {
   ) {
     const promote = [...new Set(promoteIds)];
     const demote = [...new Set(demoteIds)];
-    if (promote.length === 0 || demote.length === 0) {
-      throw new BadRequestException("Pilih peserta di kedua sisi.");
-    }
-    if (promote.length !== demote.length) {
-      throw new BadRequestException(
-        `Jumlah harus sama: ${promote.length} dinaikkan vs ${demote.length} diturunkan.`,
-      );
+    if (promote.length === 0 && demote.length === 0) {
+      throw new BadRequestException("Pilih minimal satu peserta.");
     }
     if (promote.some((id) => demote.includes(id))) {
       throw new BadRequestException(
@@ -521,12 +494,38 @@ export class RoundsService {
       );
     }
 
+    const round = await this.mustExist(roundId);
+
     return this.db.transaction(async (em) => {
-      const results = [];
-      for (let i = 0; i < promote.length; i++) {
-        results.push(await this.swapOne(em, roundId, promote[i], demote[i]));
+      const next = await this.nextRoundOf(em, round.sequence);
+
+      // Turunkan dulu, baru naikkan. Urutan ini penting kalau nanti ada
+      // pembatasan kuota: slot dilepas sebelum diisi.
+      const demoted = [];
+      for (const id of demote) {
+        demoted.push(await this.demoteOne(em, roundId, id, next));
       }
-      return { ok: true, swapped: results.length, results };
+      const promoted = [];
+      for (const id of promote) {
+        promoted.push(await this.promoteOne(em, roundId, id, next));
+      }
+
+      // Jumlah lolos setelah perubahan, biar UI bisa menampilkannya.
+      const [count]: { total: number }[] = await em.query(
+        `select count(*)::int as total from round_participants
+          where round_id = $1 and status = 'lolos'`,
+        [roundId],
+      );
+
+      return {
+        ok: true,
+        promoted_count: promoted.length,
+        demoted_count: demoted.length,
+        lolos_total: count?.total ?? 0,
+        next_round: next?.name ?? null,
+        promoted,
+        demoted,
+      };
     });
   }
 

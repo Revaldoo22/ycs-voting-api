@@ -12,7 +12,6 @@ import {
 } from "@nestjs/common";
 import {
   ArrayMaxSize,
-  ArrayMinSize,
   IsArray,
   IsBoolean,
   IsIn,
@@ -124,19 +123,25 @@ class UpdateRoundDto {
 }
 
 class SwapQualifiedDto {
-  /** Peserta di gelombang berikutnya yang dinaikkan jadi lolos. */
+  /**
+   * Peserta yang dinaikkan jadi lolos. Boleh kosong kalau panitia hanya
+   * ingin menurunkan (mis. jumlah lolos 200 jadi 190).
+   */
+  @IsOptional()
   @IsArray()
-  @ArrayMinSize(1)
-  @ArrayMaxSize(200)
+  @ArrayMaxSize(500)
   @IsUUID("4", { each: true })
-  promote_ids!: string[];
+  promote_ids?: string[];
 
-  /** Peserta lolos yang diturunkan jadi gugur. Jumlahnya harus sama. */
+  /**
+   * Peserta lolos yang diturunkan jadi gugur. Boleh kosong kalau panitia
+   * hanya ingin menaikkan. Jumlah kedua sisi tidak harus sama.
+   */
+  @IsOptional()
   @IsArray()
-  @ArrayMinSize(1)
-  @ArrayMaxSize(200)
+  @ArrayMaxSize(500)
   @IsUUID("4", { each: true })
-  demote_ids!: string[];
+  demote_ids?: string[];
 }
 
 class AddParticipantDto {
@@ -206,13 +211,20 @@ export class RoundsController {
     return this.rounds.qualified(roundId || undefined);
   }
 
-  /** Tukar peserta lolos dengan peserta di gelombang berikutnya. */
+  /**
+   * Ubah daftar peserta lolos: naikkan, turunkan, atau dua-duanya. Jumlah
+   * kedua sisi tak harus sama, jadi bisa sekadar mengurangi yang lolos.
+   */
   @Post(":id/swap-qualified")
   swapQualified(
     @Param("id", ParseUUIDPipe) id: string,
     @Body() dto: SwapQualifiedDto,
   ) {
-    return this.rounds.swapQualifiedBulk(id, dto.promote_ids, dto.demote_ids);
+    return this.rounds.swapQualifiedBulk(
+      id,
+      dto.promote_ids ?? [],
+      dto.demote_ids ?? [],
+    );
   }
 
   @Get(":id/standings")
