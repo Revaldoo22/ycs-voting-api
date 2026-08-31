@@ -690,6 +690,8 @@ export class RoundsService {
              and dv.round_id = rp.round_id
          ) pt on true
          where rp.status = 'lolos'
+           -- Golden Buzzer sudah diambil blok di atas; jangan dobel.
+           and p.golden_buzzer = false
            and $1 in ('all', 'round')
            and (
              $2::text is null
@@ -727,6 +729,9 @@ export class RoundsService {
            and dv.round_id = rp.round_id
        ) pt on true
        where rp.status = 'lolos'
+         -- Golden Buzzer punya daftarnya sendiri. Kalau ikut di sini namanya
+         -- tampil dobel, jadi dikecualikan walau baris lolosnya masih ada.
+         and p.golden_buzzer = false
          and ($1::uuid is null or r.id = $1)
        order by r.sequence, points desc, p.name`,
       [roundId ?? null],
