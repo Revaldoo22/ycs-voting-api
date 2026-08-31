@@ -67,6 +67,24 @@ export class RoundsService {
     if (activeRound) await this.syncActiveParticipants(activeRound.id);
     return this.db.query(`
       select r.*,
+             -- Kuota efektif = dasar + sisa slot gelombang sebelumnya
+             -- yang sudah ditutup (ketentuan akumulasi slot).
+             (r.top_n + coalesce((
+                select sum(greatest(pr.top_n - (
+                  select count(*) from round_participants rp2
+                   where rp2.round_id = pr.id and rp2.status = 'lolos'
+                ), 0))
+                from rounds pr
+                where pr.sequence < r.sequence and pr.status = 'closed'
+             ), 0))::int as effective_quota,
+             coalesce((
+                select sum(greatest(pr.top_n - (
+                  select count(*) from round_participants rp2
+                   where rp2.round_id = pr.id and rp2.status = 'lolos'
+                ), 0))
+                from rounds pr
+                where pr.sequence < r.sequence and pr.status = 'closed'
+             ), 0)::int as carried_slots,
              (select count(*) from round_participants rp
                where rp.round_id = r.id)::int                         as participant_count,
              (select count(distinct p.school_id) from round_participants rp
@@ -91,8 +109,30 @@ export class RoundsService {
   publicList() {
     return this.db.query(`
       select r.id, r.name, r.status, r.starts_at, r.ends_at, r.top_n,
+             r.sequence, r.is_final,
+             -- Kuota efektif = dasar + sisa slot gelombang sebelumnya
+             -- yang sudah ditutup (ketentuan akumulasi slot).
+             (r.top_n + coalesce((
+                select sum(greatest(pr.top_n - (
+                  select count(*) from round_participants rp2
+                   where rp2.round_id = pr.id and rp2.status = 'lolos'
+                ), 0))
+                from rounds pr
+                where pr.sequence < r.sequence and pr.status = 'closed'
+             ), 0))::int as effective_quota,
+             coalesce((
+                select sum(greatest(pr.top_n - (
+                  select count(*) from round_participants rp2
+                   where rp2.round_id = pr.id and rp2.status = 'lolos'
+                ), 0))
+                from rounds pr
+                where pr.sequence < r.sequence and pr.status = 'closed'
+             ), 0)::int as carried_slots,
              (select count(*) from round_participants rp
                where rp.round_id = r.id)::int as participant_count,
+             (select count(*) from round_participants rp
+               where rp.round_id = r.id and rp.status = 'lolos')::int
+               as lolos_count,
              (select count(distinct p.school_id) from round_participants rp
                join participants p on p.id = rp.participant_id
                where rp.round_id = r.id)::int as school_count
@@ -363,6 +403,55 @@ export class RoundsService {
    * peserta muncul sekali per gelombang yang dia lolosi (normalnya satu).
    * Hanya gelombang yang sudah ditutup yang punya hasil final.
    */
+  /**
+   * Kuota EFEKTIF satu gelombang = kuota dasar (top_n) + akumulasi sisa slot
+   * dari SELURUH gelombang sebelumnya yang sudah ditutup.
+   *
+   * Sisa slot = kuota dasar gelombang itu dikurangi jumlah yang benar-benar
+   * lolos. Sesuai ketentuan akumulasi, slot yang tak terisi tidak hangus.
+   *
+   * Sengaja dihitung ulang tiap kali dibaca, bukan disimpan: panitia bisa
+   * menambah/mengurangi peserta lolos kapan pun lewat panel Atur Peserta
+   * Lolos, dan kuota gelombang setelahnya harus langsung ikut menyesuaikan.
+   */
+  async effectiveQuota(roundId: string) {
+    const [row]: {
+      base: number;
+      carried: number;
+      effective: number;
+      lolos: number;
+    }[] = await this.db.query(
+      `with target as (
+         select id, top_n, sequence from rounds where id = $1
+       ),
+       -- Sisa slot tiap gelombang sebelum gelombang ini yang sudah ditutup.
+       leftovers as (
+         select greatest(
+                  r.top_n - (
+                    select count(*) from round_participants rp
+                     where rp.round_id = r.id and rp.status = 'lolos'
+                  ), 0)::int as sisa
+         from rounds r, target t
+         where r.sequence < t.sequence and r.status = 'closed'
+       )
+       select t.top_n::int as base,
+              coalesce((select sum(sisa) from leftovers), 0)::int as carried,
+              (t.top_n + coalesce((select sum(sisa) from leftovers), 0))::int
+                as effective,
+              (select count(*) from round_participants rp
+                where rp.round_id = t.id and rp.status = 'lolos')::int as lolos
+       from target t`,
+      [roundId],
+    );
+    if (!row) throw new NotFoundException("Gelombang tidak ditemukan.");
+    return {
+      base: row.base,
+      carried: row.carried,
+      effective: Math.min(row.effective, TOP_N_CAP),
+      lolos: row.lolos,
+    };
+  }
+
   /** Gelombang setelah ini (sequence terdekat di atasnya). Null = penutup. */
   private async nextRoundOf(em: EntityManager, sequence: number) {
     const [next]: { id: string; name: string }[] = await em.query(
@@ -662,7 +751,10 @@ export class RoundsService {
       throw new BadRequestException("Gelombang sudah ditutup.");
     }
     const mode = selectMode ?? round.selectMode ?? "global";
-    const n = Math.max(1, Math.min(topN || round.topN || 1, TOP_N_CAP));
+    // Kuota efektif = dasar + akumulasi sisa slot gelombang sebelumnya.
+    // topN eksplisit dari admin tetap menang kalau dikirim.
+    const quota = await this.effectiveQuota(id);
+    const n = Math.max(1, Math.min(topN || quota.effective || 1, TOP_N_CAP));
 
     // Pastikan semua peserta aktif tercatat sebelum dinilai.
     await this.syncActiveParticipants(id);

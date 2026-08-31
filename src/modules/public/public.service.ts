@@ -124,7 +124,12 @@ export class PublicService {
                 select 1 from round_participants rl
                 where rl.participant_id = p.id and rl.status = 'lolos'
               ) as qualified,
-              p.golden_buzzer
+              p.golden_buzzer,
+              -- Nama gelombang tempat dia lolos, untuk ditampilkan di panel.
+              (select r.name from round_participants rl
+                 join rounds r on r.id = rl.round_id
+                where rl.participant_id = p.id and rl.status = 'lolos'
+                order by r.sequence limit 1) as qualified_round_name
        from participants p
        left join schools s on s.id = p.school_id
        where p.id = $1`,

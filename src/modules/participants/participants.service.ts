@@ -50,16 +50,31 @@ export class ParticipantsService {
    * mengembalikan dia ke kompetisi (sync gelombang akan menariknya lagi).
    */
   async setGoldenBuzzer(id: string, on: boolean) {
-    const rows = await this.dataSource.query(
-      `update participants
-          set golden_buzzer = $2,
-              golden_buzzer_at = case when $2 then now() else null end
-        where id = $1
-        returning id, name, golden_buzzer`,
-      [id, on],
-    );
-    if (rows.length === 0) throw new NotFoundException("Peserta tidak ditemukan.");
-    return { ok: true, participant: rows[0] };
+    return this.dataSource.transaction(async (em) => {
+      const rows = await em.query(
+        `update participants
+            set golden_buzzer = $2,
+                golden_buzzer_at = case when $2 then now() else null end
+          where id = $1
+          returning id, name, golden_buzzer`,
+        [id, on],
+      );
+      if (rows.length === 0) {
+        throw new NotFoundException("Peserta tidak ditemukan.");
+      }
+
+      if (on) {
+        // Golden Buzzer adalah jalur lolos tersendiri. Kalau peserta ini
+        // sebelumnya sudah lolos lewat gelombang, statusnya dilepas supaya
+        // namanya tidak muncul dobel di dua daftar. Dia juga dikeluarkan dari
+        // gelombang mana pun karena berhenti berkompetisi.
+        await em.query(
+          `delete from round_participants where participant_id = $1`,
+          [id],
+        );
+      }
+      return { ok: true, participant: rows[0] };
+    });
   }
 
   /** Daftar Golden Buzzer, terbaru dulu. Dipakai admin & halaman publik. */
