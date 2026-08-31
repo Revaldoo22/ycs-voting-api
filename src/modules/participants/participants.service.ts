@@ -51,28 +51,13 @@ export class ParticipantsService {
    */
   async setGoldenBuzzer(id: string, on: boolean) {
     return this.dataSource.transaction(async (em) => {
-      // Gelombang tempat dia "mengisi slot": kalau dia sedang tercatat lolos
-      // di suatu gelombang, itu yang dipakai; kalau tidak, gelombang aktif.
-      const [origin]: { round_id: string | null }[] = on
-        ? await em.query(
-            `select coalesce(
-                      (select rp.round_id from round_participants rp
-                        where rp.participant_id = $1 and rp.status = 'lolos'
-                        limit 1),
-                      (select id from rounds where status = 'active' limit 1)
-                    ) as round_id`,
-            [id],
-          )
-        : [{ round_id: null }];
-
       const rows = await em.query(
         `update participants
             set golden_buzzer = $2,
-                golden_buzzer_at = case when $2 then now() else null end,
-                golden_buzzer_round_id = $3
+                golden_buzzer_at = case when $2 then now() else null end
           where id = $1
           returning id, name, golden_buzzer`,
-        [id, on, on ? (origin?.round_id ?? null) : null],
+        [id, on],
       );
       if (rows.length === 0) {
         throw new NotFoundException("Peserta tidak ditemukan.");

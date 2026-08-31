@@ -71,32 +71,22 @@ export class RoundsService {
              -- yang sudah ditutup (ketentuan akumulasi slot).
              (r.top_n + coalesce((
                 select sum(greatest(pr.top_n - (
-                  -- Slot terpakai = yang lolos lewat gelombang + Golden Buzzer
-                  -- yang slotnya berasal dari gelombang itu. Golden Buzzer
-                  -- keluar dari round_participants, tapi slotnya tetap
-                  -- terpakai karena dia juga lolos.
-                  (select count(*) from round_participants rp2
-                    where rp2.round_id = pr.id and rp2.status = 'lolos')
-                  + (select count(*) from participants gb
-                      where gb.golden_buzzer = true
-                        and gb.status = 'active'
-                        and gb.golden_buzzer_round_id = pr.id)
+                  -- Slot terpakai HANYA yang lolos lewat gelombang. Golden
+                  -- Buzzer jalur terpisah dan tidak memakai slot gelombang,
+                  -- jadi slot yang ditinggalkannya ikut digulirkan.
+                  select count(*) from round_participants rp2
+                   where rp2.round_id = pr.id and rp2.status = 'lolos'
                 ), 0))
                 from rounds pr
                 where pr.sequence < r.sequence and pr.status = 'closed'
              ), 0))::int as effective_quota,
              coalesce((
                 select sum(greatest(pr.top_n - (
-                  -- Slot terpakai = yang lolos lewat gelombang + Golden Buzzer
-                  -- yang slotnya berasal dari gelombang itu. Golden Buzzer
-                  -- keluar dari round_participants, tapi slotnya tetap
-                  -- terpakai karena dia juga lolos.
-                  (select count(*) from round_participants rp2
-                    where rp2.round_id = pr.id and rp2.status = 'lolos')
-                  + (select count(*) from participants gb
-                      where gb.golden_buzzer = true
-                        and gb.status = 'active'
-                        and gb.golden_buzzer_round_id = pr.id)
+                  -- Slot terpakai HANYA yang lolos lewat gelombang. Golden
+                  -- Buzzer jalur terpisah dan tidak memakai slot gelombang,
+                  -- jadi slot yang ditinggalkannya ikut digulirkan.
+                  select count(*) from round_participants rp2
+                   where rp2.round_id = pr.id and rp2.status = 'lolos'
                 ), 0))
                 from rounds pr
                 where pr.sequence < r.sequence and pr.status = 'closed'
@@ -130,45 +120,30 @@ export class RoundsService {
              -- yang sudah ditutup (ketentuan akumulasi slot).
              (r.top_n + coalesce((
                 select sum(greatest(pr.top_n - (
-                  -- Slot terpakai = yang lolos lewat gelombang + Golden Buzzer
-                  -- yang slotnya berasal dari gelombang itu. Golden Buzzer
-                  -- keluar dari round_participants, tapi slotnya tetap
-                  -- terpakai karena dia juga lolos.
-                  (select count(*) from round_participants rp2
-                    where rp2.round_id = pr.id and rp2.status = 'lolos')
-                  + (select count(*) from participants gb
-                      where gb.golden_buzzer = true
-                        and gb.status = 'active'
-                        and gb.golden_buzzer_round_id = pr.id)
+                  -- Slot terpakai HANYA yang lolos lewat gelombang. Golden
+                  -- Buzzer jalur terpisah dan tidak memakai slot gelombang,
+                  -- jadi slot yang ditinggalkannya ikut digulirkan.
+                  select count(*) from round_participants rp2
+                   where rp2.round_id = pr.id and rp2.status = 'lolos'
                 ), 0))
                 from rounds pr
                 where pr.sequence < r.sequence and pr.status = 'closed'
              ), 0))::int as effective_quota,
              coalesce((
                 select sum(greatest(pr.top_n - (
-                  -- Slot terpakai = yang lolos lewat gelombang + Golden Buzzer
-                  -- yang slotnya berasal dari gelombang itu. Golden Buzzer
-                  -- keluar dari round_participants, tapi slotnya tetap
-                  -- terpakai karena dia juga lolos.
-                  (select count(*) from round_participants rp2
-                    where rp2.round_id = pr.id and rp2.status = 'lolos')
-                  + (select count(*) from participants gb
-                      where gb.golden_buzzer = true
-                        and gb.status = 'active'
-                        and gb.golden_buzzer_round_id = pr.id)
+                  -- Slot terpakai HANYA yang lolos lewat gelombang. Golden
+                  -- Buzzer jalur terpisah dan tidak memakai slot gelombang,
+                  -- jadi slot yang ditinggalkannya ikut digulirkan.
+                  select count(*) from round_participants rp2
+                   where rp2.round_id = pr.id and rp2.status = 'lolos'
                 ), 0))
                 from rounds pr
                 where pr.sequence < r.sequence and pr.status = 'closed'
              ), 0)::int as carried_slots,
              (select count(*) from round_participants rp
                where rp.round_id = r.id)::int as participant_count,
-             -- Slot terpakai: lolos lewat gelombang + Golden Buzzer yang
-             -- slotnya berasal dari gelombang ini.
-             ((select count(*) from round_participants rp
-                where rp.round_id = r.id and rp.status = 'lolos')
-              + (select count(*) from participants gb
-                  where gb.golden_buzzer = true and gb.status = 'active'
-                    and gb.golden_buzzer_round_id = r.id))::int
+             (select count(*) from round_participants rp
+               where rp.round_id = r.id and rp.status = 'lolos')::int
                as lolos_count,
              (select count(distinct p.school_id) from round_participants rp
                join participants p on p.id = rp.participant_id
@@ -465,13 +440,8 @@ export class RoundsService {
        leftovers as (
          select greatest(
                   r.top_n - (
-                    -- Golden Buzzer ikut mengisi slot gelombang asalnya.
-                    (select count(*) from round_participants rp
-                      where rp.round_id = r.id and rp.status = 'lolos')
-                    + (select count(*) from participants gb
-                        where gb.golden_buzzer = true
-                          and gb.status = 'active'
-                          and gb.golden_buzzer_round_id = r.id)
+                    select count(*) from round_participants rp
+                     where rp.round_id = r.id and rp.status = 'lolos'
                   ), 0)::int as sisa
          from rounds r, target t
          where r.sequence < t.sequence and r.status = 'closed'
@@ -480,11 +450,8 @@ export class RoundsService {
               coalesce((select sum(sisa) from leftovers), 0)::int as carried,
               (t.top_n + coalesce((select sum(sisa) from leftovers), 0))::int
                 as effective,
-              ((select count(*) from round_participants rp
-                 where rp.round_id = t.id and rp.status = 'lolos')
-               + (select count(*) from participants gb
-                   where gb.golden_buzzer = true and gb.status = 'active'
-                     and gb.golden_buzzer_round_id = t.id))::int as lolos
+              (select count(*) from round_participants rp
+                where rp.round_id = t.id and rp.status = 'lolos')::int as lolos
        from target t`,
       [roundId],
     );
