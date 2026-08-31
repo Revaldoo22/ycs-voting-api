@@ -62,6 +62,15 @@ export class Participant {
   @Column({ name: "golden_buzzer_at", type: "timestamptz", nullable: true })
   goldenBuzzerAt!: Date | null;
 
+  /**
+   * Gelombang yang sedang berjalan saat peserta ini ditandai Golden Buzzer.
+   * Dia keluar dari round_participants (berhenti berkompetisi), tapi slotnya
+   * tetap terpakai di gelombang itu, jadi perlu dicatat supaya perhitungan
+   * sisa slot akurat.
+   */
+  @Column({ name: "golden_buzzer_round_id", type: "uuid", nullable: true })
+  goldenBuzzerRoundId!: string | null;
+
   @CreateDateColumn({ name: "created_at", type: "timestamptz" })
   createdAt!: Date;
 }

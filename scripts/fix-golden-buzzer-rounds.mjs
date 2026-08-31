@@ -54,6 +54,20 @@ if (DRY) {
   process.exit(0);
 }
 
+// Catat dulu gelombang asal slotnya, SEBELUM barisnya dihapus. Tanpa ini
+// slot Golden Buzzer tak terhitung terpakai, sehingga sisa slot yang
+// digulirkan ke gelombang berikutnya jadi lebih besar dari seharusnya.
+const { rowCount: tagged } = await client.query(
+  `update participants p
+      set golden_buzzer_round_id = rp.round_id
+     from round_participants rp
+    where rp.participant_id = p.id
+      and p.golden_buzzer = true
+      and rp.status = 'lolos'
+      and p.golden_buzzer_round_id is null`,
+);
+console.log(`\n${tagged} peserta dicatat gelombang asal slotnya.`);
+
 const { rowCount } = await client.query(
   `delete from round_participants rp
     using participants p
