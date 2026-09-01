@@ -56,4 +56,59 @@ export class NotificationsService implements OnModuleInit {
       [profileId, payload.type ?? "vote_rejected", payload.title, payload.body],
     );
   }
+
+  /**
+   * Kirim satu notifikasi ke SEMUA akun (voter maupun peserta). Dipakai admin
+   * untuk pengumuman, mis. ajakan mendaftar jadi peserta YCS.
+   *
+   * `onlyNonParticipants` membatasi ke akun yang belum tertaut record peserta,
+   * supaya peserta tidak menerima ajakan yang tak relevan untuk mereka.
+   *
+   * Idempotensi ditangani `dedupeHours`: kalau notifikasi bertipe sama sudah
+   * dikirim ke akun itu dalam N jam terakhir, akun itu dilewati. Tanpa ini
+   * admin yang menekan tombol dua kali akan membanjiri lonceng voter.
+   */
+  async broadcast(payload: {
+    type: string;
+    title: string;
+    body: string;
+    onlyNonParticipants?: boolean;
+    dedupeHours?: number;
+  }) {
+    const dedupe = Math.max(0, payload.dedupeHours ?? 24);
+    const rows: { count: string }[] = await this.db.query(
+      `with target as (
+         insert into notifications (profile_id, type, title, body)
+         select pr.id, $1, $2, $3
+         from profiles pr
+         where pr.role = 'voter'
+           -- Akun peserta dikenali dari record peserta yang tertaut, baik
+           -- lewat profile_id maupun kecocokan email.
+           and (
+             $4::boolean is not true
+             or not exists (
+               select 1 from participants p
+               where p.profile_id = pr.id
+                  or (pr.email is not null
+                      and lower(p.email) = lower(pr.email))
+             )
+           )
+           and not exists (
+             select 1 from notifications n
+             where n.profile_id = pr.id and n.type = $1
+               and n.created_at > now() - ($5 || ' hours')::interval
+           )
+         returning 1
+       )
+       select count(*)::text as count from target`,
+      [
+        payload.type,
+        payload.title,
+        payload.body,
+        payload.onlyNonParticipants ?? false,
+        String(dedupe),
+      ],
+    );
+    return { ok: true, sent: Number(rows[0]?.count ?? 0) };
+  }
 }

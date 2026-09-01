@@ -22,6 +22,7 @@ import { CouponClaimsService } from "./coupon-claims.service";
 import { VotingController } from "./voting.controller";
 import { VoterSelfController } from "./voter-self.controller";
 import { VotesAdminController } from "./votes-admin.controller";
+import { NotificationsAdminController } from "./notifications-admin.controller";
 import { CouponClaimsAdminController } from "./coupon-claims-admin.controller";
 
 @Module({
@@ -46,6 +47,7 @@ import { CouponClaimsAdminController } from "./coupon-claims-admin.controller";
     VoterSelfController,
     VotesAdminController,
     CouponClaimsAdminController,
+    NotificationsAdminController,
   ],
   providers: [
     AntiCheatService,

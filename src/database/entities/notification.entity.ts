@@ -6,7 +6,11 @@ import {
   PrimaryGeneratedColumn,
 } from "typeorm";
 
-export type NotificationType = "vote_rejected" | "coupon_claim_rejected";
+export type NotificationType =
+  | "vote_rejected"
+  | "coupon_claim_rejected"
+  /** Pengumuman admin, mis. ajakan mendaftar jadi peserta YCS. */
+  | "announcement";
 
 /**
  * Pemberitahuan untuk voter (mis. vote ditolak beserta alasannya).
