@@ -75,7 +75,9 @@ export class RoundsService {
                   -- Buzzer jalur terpisah dan tidak memakai slot gelombang,
                   -- jadi slot yang ditinggalkannya ikut digulirkan.
                   select count(*) from round_participants rp2
+                    join participants p2 on p2.id = rp2.participant_id
                    where rp2.round_id = pr.id and rp2.status = 'lolos'
+                     and p2.golden_buzzer = false
                 ), 0))
                 from rounds pr
                 where pr.sequence < r.sequence and pr.status = 'closed'
@@ -86,7 +88,9 @@ export class RoundsService {
                   -- Buzzer jalur terpisah dan tidak memakai slot gelombang,
                   -- jadi slot yang ditinggalkannya ikut digulirkan.
                   select count(*) from round_participants rp2
+                    join participants p2 on p2.id = rp2.participant_id
                    where rp2.round_id = pr.id and rp2.status = 'lolos'
+                     and p2.golden_buzzer = false
                 ), 0))
                 from rounds pr
                 where pr.sequence < r.sequence and pr.status = 'closed'
@@ -97,7 +101,9 @@ export class RoundsService {
                join participants p on p.id = rp.participant_id
                where rp.round_id = r.id)::int                         as school_count,
              (select count(*) from round_participants rp
-               where rp.round_id = r.id and rp.status = 'lolos')::int as lolos_count,
+               join participants p on p.id = rp.participant_id
+               where rp.round_id = r.id and rp.status = 'lolos'
+                 and p.golden_buzzer = false)::int as lolos_count,
              (select coalesce(sum(
                  rp.carry_points + coalesce((
                    select sum(dv.points) from daily_votes dv
@@ -124,7 +130,9 @@ export class RoundsService {
                   -- Buzzer jalur terpisah dan tidak memakai slot gelombang,
                   -- jadi slot yang ditinggalkannya ikut digulirkan.
                   select count(*) from round_participants rp2
+                    join participants p2 on p2.id = rp2.participant_id
                    where rp2.round_id = pr.id and rp2.status = 'lolos'
+                     and p2.golden_buzzer = false
                 ), 0))
                 from rounds pr
                 where pr.sequence < r.sequence and pr.status = 'closed'
@@ -135,7 +143,9 @@ export class RoundsService {
                   -- Buzzer jalur terpisah dan tidak memakai slot gelombang,
                   -- jadi slot yang ditinggalkannya ikut digulirkan.
                   select count(*) from round_participants rp2
+                    join participants p2 on p2.id = rp2.participant_id
                    where rp2.round_id = pr.id and rp2.status = 'lolos'
+                     and p2.golden_buzzer = false
                 ), 0))
                 from rounds pr
                 where pr.sequence < r.sequence and pr.status = 'closed'
@@ -143,7 +153,9 @@ export class RoundsService {
              (select count(*) from round_participants rp
                where rp.round_id = r.id)::int as participant_count,
              (select count(*) from round_participants rp
-               where rp.round_id = r.id and rp.status = 'lolos')::int
+               join participants p on p.id = rp.participant_id
+               where rp.round_id = r.id and rp.status = 'lolos'
+                 and p.golden_buzzer = false)::int
                as lolos_count,
              (select count(distinct p.school_id) from round_participants rp
                join participants p on p.id = rp.participant_id
@@ -441,7 +453,9 @@ export class RoundsService {
          select greatest(
                   r.top_n - (
                     select count(*) from round_participants rp
+                      join participants p on p.id = rp.participant_id
                      where rp.round_id = r.id and rp.status = 'lolos'
+                       and p.golden_buzzer = false
                   ), 0)::int as sisa
          from rounds r, target t
          where r.sequence < t.sequence and r.status = 'closed'
@@ -451,7 +465,9 @@ export class RoundsService {
               (t.top_n + coalesce((select sum(sisa) from leftovers), 0))::int
                 as effective,
               (select count(*) from round_participants rp
-                where rp.round_id = t.id and rp.status = 'lolos')::int as lolos
+                 join participants p on p.id = rp.participant_id
+                where rp.round_id = t.id and rp.status = 'lolos'
+                  and p.golden_buzzer = false)::int as lolos
        from target t`,
       [roundId],
     );
