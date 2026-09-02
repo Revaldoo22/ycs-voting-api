@@ -132,8 +132,11 @@ export class AdminService {
           where role <> 'admin' and onboarded = false)::int          as accounts_not_onboarded,
         -- Pernah vote dicocokkan lewat nomor WA maupun email, karena vote
         -- menyimpan identitas voter apa adanya, bukan referensi ke profil.
+        -- Onboarding TIDAK disyaratkan di sini: peserta yang emailnya cocok
+        -- record peserta boleh vote tanpa menyelesaikan wizard, jadi kalau
+        -- disaring mereka hilang dari corong padahal sudah vote.
         (select count(*) from profiles pr
-          where pr.role <> 'admin' and pr.onboarded = true
+          where pr.role <> 'admin'
             and exists (
               select 1 from daily_votes dv
               where dv.is_bot = false
@@ -145,12 +148,12 @@ export class AdminService {
         (select count(*) from profiles pr
           where pr.role <> 'admin' and pr.onboarded = true
             and not exists (
-              select 1 from daily_votes dv
-              where dv.is_bot = false
+              select 1 from daily_votes dv2
+              where dv2.is_bot = false
                 and ((pr.phone_number is not null
-                      and dv.voter_phone = pr.phone_number)
+                      and dv2.voter_phone = pr.phone_number)
                   or (pr.email is not null
-                      and lower(dv.voter_email) = lower(pr.email)))
+                      and lower(dv2.voter_email) = lower(pr.email)))
             ))::int                                                  as accounts_onboarded_no_vote,
 
         -- Voter yang vote tanpa akun terdaftar (mis. data lama), supaya

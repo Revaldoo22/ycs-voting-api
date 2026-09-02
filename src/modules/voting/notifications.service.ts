@@ -84,7 +84,9 @@ export class NotificationsService implements OnModuleInit {
          -- Kriteria HARUS sama dengan endpoint audience, kalau tidak jumlah
          -- terkirim berbeda dari yang dijanjikan ke admin sebelum mengirim.
          where pr.role <> 'admin'
-           and pr.onboarded = true
+           -- Sengaja TIDAK menyaring onboarded: notifikasi muncul di lonceng
+           -- begitu mereka login, dan yang belum onboarding justru sasaran
+           -- utama ajakan mendaftar.
            -- Peserta hasil sync punya role 'participant'; yang mendaftar
            -- sendiri sebagai voter dikenali lewat record peserta yang
            -- tertaut, baik via profile_id maupun kecocokan email.
