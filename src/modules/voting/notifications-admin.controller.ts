@@ -56,10 +56,19 @@ export class NotificationsAdminController {
   @Get("audience")
   async audience() {
     const [row] = (await this.db.query(
+      // Hanya akun yang sudah onboarding: sisanya belum menyelesaikan wizard
+      // dan tak punya identitas lengkap, jadi mengirimi mereka pengumuman
+      // sia-sia. Definisi ini sama dengan Total Voter di dashboard.
+      //
+      // Peserta hasil sync dari web pendaftaran dibuatkan profil ber-role
+      // 'participant', jadi role voter saja tidak cukup untuk memisahkan.
+      // Pengecekan record peserta tetap dilakukan lewat profile_id maupun
+      // email, untuk peserta yang mendaftar sendiri sebagai voter.
       `select
-         count(*) filter (where pr.role = 'voter')::int as total_akun,
+         count(*) filter (where pr.onboarded = true)::int as total_akun,
          count(*) filter (
-           where pr.role = 'voter'
+           where pr.onboarded = true
+             and pr.role <> 'participant'
              and not exists (
                select 1 from participants p
                where p.profile_id = pr.id
@@ -67,7 +76,8 @@ export class NotificationsAdminController {
                       and lower(p.email) = lower(pr.email))
              )
          )::int as belum_peserta
-       from profiles pr`,
+       from profiles pr
+       where pr.role <> 'admin'`,
     )) as { total_akun: number; belum_peserta: number }[];
     return row;
   }

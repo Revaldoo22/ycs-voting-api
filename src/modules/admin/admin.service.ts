@@ -55,6 +55,15 @@ export class AdminService {
   constructor(private readonly db: DataSource) {}
 
   async stats() {
+    // Angka dashboard sengaja dipilah, bukan satu total kasar, supaya panitia
+    // tahu mana yang sudah sah dan mana yang masih antre. Beberapa jebakan
+    // yang dihindari di sini:
+    //  - vote bot (boost admin) bukan vote asli, jadi selalu dikecualikan
+    //  - vote 'pending' belum menyumbang poin, jadi dipisah dari 'approved'
+    //  - vote yang ditolak DIHAPUS dari daily_votes (agar voter bisa ulang),
+    //    jejaknya hanya ada di tabel arsip rejections
+    //  - peserta 'inactive' tidak ikut kompetisi, jadi dihitung terpisah
+    //
     // total_voters SAMA definisinya dengan halaman Daftar Voter: gabungan
     // (pernah vote) ∪ (pernah quest approved) ∪ (voter onboarded walau belum
     // vote), supaya angka dashboard & daftar tidak beda.
@@ -62,10 +71,25 @@ export class AdminService {
       select
         (select count(distinct school_id) from participants
           where school_id is not null)::int                          as total_schools,
+
+        -- Peserta
         (select count(*) from participants)::int                     as total_participants,
+        (select count(*) from participants where status = 'active')::int
+                                                                     as active_participants,
+        (select count(*) from participants where status <> 'active')::int
+                                                                     as inactive_participants,
+        (select count(*) from participants where golden_buzzer = true
+           and status = 'active')::int                               as golden_buzzers,
+        (select count(*) from round_participants rp
+           join participants p on p.id = rp.participant_id
+          where rp.status = 'lolos' and p.golden_buzzer = false)::int as qualified_participants,
+        (select count(*) from participants
+          where status = 'active' and total_points > 0)::int         as participants_with_points,
+
+        -- Voter (identitas unik, bukan jumlah vote)
         (select count(*) from (
            select voter_phone as phone from daily_votes
-             where voter_phone is not null
+             where voter_phone is not null and is_bot = false
            union
            select voter_phone from submissions
              where status = 'approved' and voter_phone is not null
@@ -74,7 +98,73 @@ export class AdminService {
              where role = 'voter' and onboarded = true
                and phone_number is not null
         ) u)::int                                                    as total_voters,
-        (select count(*) from daily_votes)::int                      as total_votes,
+        (select count(*) from profiles
+          where role = 'voter' and onboarded = true)::int            as onboarded_voters,
+
+        -- Vote (baris vote, bot tidak pernah ikut)
+        (select count(*) from daily_votes where is_bot = false)::int as total_votes,
+        (select count(*) from daily_votes
+          where is_bot = false and status = 'approved')::int         as approved_votes,
+        (select count(*) from daily_votes
+          where is_bot = false and status = 'pending')::int          as pending_votes,
+        -- Ditolak diambil dari arsip: barisnya sudah dihapus dari daily_votes
+        -- supaya voter bisa mengajukan ulang.
+        (select count(*) from rejections where kind = 'vote')::int   as rejected_votes,
+        (select count(*) from daily_votes where is_bot = true)::int  as bot_votes,
+
+        -- Klaim kupon
+        (select count(*) from coupon_claims where status = 'pending')::int
+                                                                     as pending_claims,
+        (select count(*) from coupon_claims where status = 'approved')::int
+                                                                     as approved_claims,
+        (select count(*) from rejections where kind = 'coupon_claim')::int
+                                                                     as rejected_claims,
+
+        -- Corong akun: tiap tahap adalah HIMPUNAN BAGIAN dari tahap
+        -- sebelumnya, jadi jumlahnya tidak boleh dijumlahkan mentah-mentah.
+        --   punya akun > onboarding selesai > pernah vote
+        -- Akun admin dikecualikan; peserta hasil sync (role 'participant')
+        -- ikut dihitung karena mereka juga bisa memberi dukungan.
+        (select count(*) from profiles where role <> 'admin')::int   as accounts_total,
+        (select count(*) from profiles
+          where role <> 'admin' and onboarded = true)::int           as accounts_onboarded,
+        (select count(*) from profiles
+          where role <> 'admin' and onboarded = false)::int          as accounts_not_onboarded,
+        -- Pernah vote dicocokkan lewat nomor WA maupun email, karena vote
+        -- menyimpan identitas voter apa adanya, bukan referensi ke profil.
+        (select count(*) from profiles pr
+          where pr.role <> 'admin' and pr.onboarded = true
+            and exists (
+              select 1 from daily_votes dv
+              where dv.is_bot = false
+                and ((pr.phone_number is not null
+                      and dv.voter_phone = pr.phone_number)
+                  or (pr.email is not null
+                      and lower(dv.voter_email) = lower(pr.email)))
+            ))::int                                                  as accounts_voted,
+        (select count(*) from profiles pr
+          where pr.role <> 'admin' and pr.onboarded = true
+            and not exists (
+              select 1 from daily_votes dv
+              where dv.is_bot = false
+                and ((pr.phone_number is not null
+                      and dv.voter_phone = pr.phone_number)
+                  or (pr.email is not null
+                      and lower(dv.voter_email) = lower(pr.email)))
+            ))::int                                                  as accounts_onboarded_no_vote,
+
+        -- Voter yang vote tanpa akun terdaftar (mis. data lama), supaya
+        -- selisih antara total_voters dan corong akun bisa dijelaskan.
+        (select count(distinct dv.voter_phone) from daily_votes dv
+          where dv.is_bot = false and dv.voter_phone is not null
+            and not exists (
+              select 1 from profiles pr
+              where pr.role <> 'admin'
+                and (pr.phone_number = dv.voter_phone
+                  or (pr.email is not null
+                      and lower(pr.email) = lower(dv.voter_email)))
+            ))::int                                                  as voters_without_account,
+
         (select coalesce(sum(total_points), 0) from participants)::int as total_points`);
     return rows[0];
   }
@@ -124,7 +214,10 @@ export class AdminService {
     return this.db.query(
       `select to_char(d::date, 'YYYY-MM-DD') as day,
               coalesce((select count(*) from daily_votes dv
-                        where dv.vote_date = d::date), 0)::int as votes
+                        where dv.vote_date = d::date
+                          -- Boost admin bukan vote asli: kalau ikut, grafik
+                          -- melonjak palsu di hari boost dilakukan.
+                          and dv.is_bot = false), 0)::int as votes
        from generate_series($1::date, $2::date, interval '1 day') d
        order by d`,
       [r.from, r.to],
@@ -143,6 +236,8 @@ export class AdminService {
       `select to_char(d::date, 'YYYY-MM-DD') as day,
               (select count(distinct voter_phone) from daily_votes
                where voter_phone is not null
+                 -- Bot bukan orang, jadi tak boleh menaikkan kurva voter.
+                 and is_bot = false
                  and created_at::date <= d::date)::int as cumulative
        from generate_series($1::date, $2::date, interval '1 day') d
        order by d`,
@@ -199,6 +294,9 @@ export class AdminService {
              min(created_at) as first_c, max(created_at) as last_c
       from daily_votes
       where voter_phone is not null
+        -- Vote bot (boost admin) bukan orang, jadi tak boleh muncul sebagai
+        -- voter. Dashboard memakai definisi yang sama supaya angkanya cocok.
+        and is_bot = false
         and ($1::uuid is null or participant_id = $1)
         and ($2::date is null or created_at::date >= $2)
         and ($3::date is null or created_at::date <= $3)

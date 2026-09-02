@@ -81,16 +81,23 @@ export class NotificationsService implements OnModuleInit {
          insert into notifications (profile_id, type, title, body)
          select pr.id, $1, $2, $3
          from profiles pr
-         where pr.role = 'voter'
-           -- Akun peserta dikenali dari record peserta yang tertaut, baik
-           -- lewat profile_id maupun kecocokan email.
+         -- Kriteria HARUS sama dengan endpoint audience, kalau tidak jumlah
+         -- terkirim berbeda dari yang dijanjikan ke admin sebelum mengirim.
+         where pr.role <> 'admin'
+           and pr.onboarded = true
+           -- Peserta hasil sync punya role 'participant'; yang mendaftar
+           -- sendiri sebagai voter dikenali lewat record peserta yang
+           -- tertaut, baik via profile_id maupun kecocokan email.
            and (
              $4::boolean is not true
-             or not exists (
-               select 1 from participants p
-               where p.profile_id = pr.id
-                  or (pr.email is not null
-                      and lower(p.email) = lower(pr.email))
+             or (
+               pr.role <> 'participant'
+               and not exists (
+                 select 1 from participants p
+                 where p.profile_id = pr.id
+                    or (pr.email is not null
+                        and lower(p.email) = lower(pr.email))
+               )
              )
            )
            and not exists (
