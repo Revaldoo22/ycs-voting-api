@@ -120,23 +120,48 @@ export class AdminService {
         (select count(*) from rejections where kind = 'coupon_claim')::int
                                                                      as rejected_claims,
 
-        -- Corong akun: tiap tahap adalah HIMPUNAN BAGIAN dari tahap
-        -- sebelumnya, jadi jumlahnya tidak boleh dijumlahkan mentah-mentah.
+        -- CORONG VOTER MURNI: akun yang bukan peserta, yaitu tidak ber-role
+        -- 'participant' dan tidak punya record peserta yang cocok (lewat
+        -- profile_id maupun email). Peserta sengaja dikeluarkan supaya corong
+        -- ini benar-benar menggambarkan pendukung dari luar, bukan campuran.
+        --
+        -- Tiap tahap HIMPUNAN BAGIAN dari tahap sebelumnya, jadi tidak boleh
+        -- dijumlahkan mentah-mentah:
         --   punya akun > onboarding selesai > pernah vote
-        -- Akun admin dikecualikan; peserta hasil sync (role 'participant')
-        -- ikut dihitung karena mereka juga bisa memberi dukungan.
-        (select count(*) from profiles where role <> 'admin')::int   as accounts_total,
-        (select count(*) from profiles
-          where role <> 'admin' and onboarded = true)::int           as accounts_onboarded,
-        (select count(*) from profiles
-          where role <> 'admin' and onboarded = false)::int          as accounts_not_onboarded,
+        (select count(*) from profiles pr
+          where pr.role = 'voter'
+            and not exists (
+              select 1 from participants p
+              where p.profile_id = pr.id
+                 or (pr.email is not null
+                     and lower(p.email) = lower(pr.email))
+            ))::int                                                  as accounts_total,
+        (select count(*) from profiles pr
+          where pr.role = 'voter' and pr.onboarded = true
+            and not exists (
+              select 1 from participants p
+              where p.profile_id = pr.id
+                 or (pr.email is not null
+                     and lower(p.email) = lower(pr.email))
+            ))::int                                                  as accounts_onboarded,
+        (select count(*) from profiles pr
+          where pr.role = 'voter' and pr.onboarded = false
+            and not exists (
+              select 1 from participants p
+              where p.profile_id = pr.id
+                 or (pr.email is not null
+                     and lower(p.email) = lower(pr.email))
+            ))::int                                                  as accounts_not_onboarded,
         -- Pernah vote dicocokkan lewat nomor WA maupun email, karena vote
         -- menyimpan identitas voter apa adanya, bukan referensi ke profil.
-        -- Onboarding TIDAK disyaratkan di sini: peserta yang emailnya cocok
-        -- record peserta boleh vote tanpa menyelesaikan wizard, jadi kalau
-        -- disaring mereka hilang dari corong padahal sudah vote.
         (select count(*) from profiles pr
-          where pr.role <> 'admin'
+          where pr.role = 'voter'
+            and not exists (
+              select 1 from participants p
+              where p.profile_id = pr.id
+                 or (pr.email is not null
+                     and lower(p.email) = lower(pr.email))
+            )
             and exists (
               select 1 from daily_votes dv
               where dv.is_bot = false
@@ -146,7 +171,13 @@ export class AdminService {
                       and lower(dv.voter_email) = lower(pr.email)))
             ))::int                                                  as accounts_voted,
         (select count(*) from profiles pr
-          where pr.role <> 'admin' and pr.onboarded = true
+          where pr.role = 'voter' and pr.onboarded = true
+            and not exists (
+              select 1 from participants p
+              where p.profile_id = pr.id
+                 or (pr.email is not null
+                     and lower(p.email) = lower(pr.email))
+            )
             and not exists (
               select 1 from daily_votes dv2
               where dv2.is_bot = false
@@ -155,6 +186,22 @@ export class AdminService {
                   or (pr.email is not null
                       and lower(dv2.voter_email) = lower(pr.email)))
             ))::int                                                  as accounts_onboarded_no_vote,
+
+        -- AKUN PESERTA, dihitung terpisah dari corong. Peserta boleh vote
+        -- ke peserta lain, jadi kontribusinya perlu terlihat tapi tidak
+        -- boleh mencampuri gambaran pendukung dari luar.
+        (select count(*) from profiles where role = 'participant')::int
+                                                                     as participant_accounts,
+        (select count(*) from profiles pr
+          where pr.role = 'participant'
+            and exists (
+              select 1 from daily_votes dv3
+              where dv3.is_bot = false
+                and ((pr.phone_number is not null
+                      and dv3.voter_phone = pr.phone_number)
+                  or (pr.email is not null
+                      and lower(dv3.voter_email) = lower(pr.email)))
+            ))::int                                                  as participant_accounts_voted,
 
         -- Voter yang vote tanpa akun terdaftar (mis. data lama), supaya
         -- selisih antara total_voters dan corong akun bisa dijelaskan.
