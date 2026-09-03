@@ -69,7 +69,18 @@ export class PublicService {
                 select 1 from round_participants rl
                 where rl.participant_id = p.id and rl.status = 'lolos'
               ) as qualified,
-              p.golden_buzzer
+              p.golden_buzzer,
+              -- Poin gelombang berjalan, basis yang sama dengan klasemen.
+              -- Kartu memakai ini supaya angkanya tak beda dengan klasemen.
+              (select (rp.carry_points + coalesce((
+                         select sum(dv.points) from daily_votes dv
+                         where dv.participant_id = rp.participant_id
+                           and dv.round_id = rp.round_id
+                       ), 0))::int
+                 from round_participants rp
+                 join rounds r on r.id = rp.round_id
+                where rp.participant_id = p.id and r.status = 'active'
+                limit 1) as round_points
        from participants p
        left join schools s on s.id = p.school_id
        left join regions reg on reg.id = s.region_id
@@ -129,7 +140,24 @@ export class PublicService {
               (select r.name from round_participants rl
                  join rounds r on r.id = rl.round_id
                 where rl.participant_id = p.id and rl.status = 'lolos'
-                order by r.sequence limit 1) as qualified_round_name
+                order by r.sequence limit 1) as qualified_round_name,
+              -- Poin di gelombang BERJALAN, basis yang sama dengan klasemen:
+              -- carry_points + vote yang masuk di gelombang itu. Tanpa ini
+              -- halaman peserta menampilkan total_points sehingga angkanya
+              -- beda dengan klasemen dan terlihat seperti bug.
+              (select (rp.carry_points + coalesce((
+                         select sum(dv.points) from daily_votes dv
+                         where dv.participant_id = rp.participant_id
+                           and dv.round_id = rp.round_id
+                       ), 0))::int
+                 from round_participants rp
+                 join rounds r on r.id = rp.round_id
+                where rp.participant_id = p.id and r.status = 'active'
+                limit 1) as round_points,
+              (select r.name from round_participants rp
+                 join rounds r on r.id = rp.round_id
+                where rp.participant_id = p.id and r.status = 'active'
+                limit 1) as round_name
        from participants p
        left join schools s on s.id = p.school_id
        where p.id = $1`,
