@@ -39,6 +39,13 @@ export class Notification {
   @Column({ name: "read_at", type: "timestamptz", nullable: true })
   readAt!: Date | null;
 
+  /**
+   * Pengiriman pengumuman asal notifikasi ini. Dipakai mengaitkan klik tautan
+   * ke pengumumannya. Null untuk notifikasi non-pengumuman.
+   */
+  @Column({ name: "announcement_id", type: "uuid", nullable: true })
+  announcementId!: string | null;
+
   @CreateDateColumn({ name: "created_at", type: "timestamptz" })
   createdAt!: Date;
 }

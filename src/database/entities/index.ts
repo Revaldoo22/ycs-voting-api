@@ -32,6 +32,7 @@ export {
   type RoundParticipantStatus,
 } from "./round.entity";
 export { Rejection, type RejectionKind } from "./rejection.entity";
+export { Announcement, AnnouncementClick } from "./announcement.entity";
 export {
   RewardCatalog,
   SpinPrize,
@@ -57,6 +58,7 @@ import { CouponClaim } from "./coupon-claim.entity";
 import { Notification } from "./notification.entity";
 import { Round, RoundParticipant } from "./round.entity";
 import { Rejection } from "./rejection.entity";
+import { Announcement, AnnouncementClick } from "./announcement.entity";
 import {
   RewardCatalog,
   SpinPrize,
@@ -83,6 +85,8 @@ export const ENTITIES = [
   Round,
   RoundParticipant,
   Rejection,
+  Announcement,
+  AnnouncementClick,
   RewardCatalog,
   SpinPrize,
   RewardRedemption,
