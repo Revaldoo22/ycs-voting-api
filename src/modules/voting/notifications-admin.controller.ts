@@ -77,10 +77,22 @@ export class NotificationsAdminController {
                   or (pr.email is not null
                       and lower(p.email) = lower(pr.email))
              )
-         )::int as belum_peserta
+         )::int as belum_peserta,
+         -- Akun yang akan DILEWATI dedupe: sudah menerima pengumuman dalam
+         -- 24 jam terakhir. Ditampilkan supaya admin tak bingung melihat
+         -- "terkirim 7" padahal sasarannya belasan ribu.
+         (select count(*)::int from (
+            select distinct n.profile_id from notifications n
+             where n.type = 'announcement'
+               and n.created_at > now() - interval '24 hours'
+          ) d)::int as dilewati_dedupe
        from profiles pr
        where pr.role <> 'admin'`,
-    )) as { total_akun: number; belum_peserta: number }[];
+    )) as {
+      total_akun: number;
+      belum_peserta: number;
+      dilewati_dedupe: number;
+    }[];
     return row;
   }
 
