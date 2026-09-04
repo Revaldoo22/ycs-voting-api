@@ -41,9 +41,15 @@ export class VoterInfoDto {
   @MaxLength(150)
   school?: string;
 
+  /**
+   * Kelas. Batasnya 50 mengikuti onboarding, BUKAN 10. Voter boleh mengisi
+   * kelas manual seperti "XII Akuntansi 2", dan nilai itu tersimpan di
+   * profil lalu diisi ulang server ke sini saat vote. Batas 10 di sini
+   * membuat vote mereka ditolak walau onboardingnya sudah lolos.
+   */
   @IsOptional()
   @IsString()
-  @MaxLength(10)
+  @MaxLength(50)
   class?: string;
 }
 

@@ -24,8 +24,15 @@ export class UpdateProfileDto {
   @MaxLength(150)
   school_name?: string;
 
+  /**
+   * String bebas, bukan @IsIn daftar dropdown. Onboarding mengizinkan kelas
+   * manual seperti "XII Akuntansi 2"; kalau di sini dibatasi 4 pilihan, voter
+   * dengan kelas manual tak bisa menyimpan perubahan apa pun di halaman Akun
+   * karena class lamanya ikut terkirim dan ditolak.
+   */
   @IsOptional()
-  @IsIn(["10", "11", "12", "alumni"], { message: "Pilih kelas" })
+  @IsString()
+  @MaxLength(50)
   class?: string;
 
   @IsOptional()
