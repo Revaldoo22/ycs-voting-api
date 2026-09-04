@@ -542,6 +542,13 @@ Prize yang terkunci) sebagai informasi, bukan sebagai isi roda. Bedakan lewat
 field `is_locked`: yang `true` **tidak akan pernah keluar** lewat jalur apa
 pun, jadi jangan dijanjikan bisa didapat.
 
+> **Hadiah terkunci ikut di `GET /rewards/prizes` biasa** (tanpa `?all=1`),
+> walau `active`-nya `false`. Itu memang disengaja: hadiah utama tetap
+> tergambar di roda sebagai pemikat, sementara `chance`-nya `0` dan tidak
+> ada yang bisa mendapatkannya. Jadi **jangan menyaring roda pakai `active`**,
+> nanti hadiah terkunci hilang dari gambar. Kalau kalian mau menyembunyikan
+> sebuah hadiah dari roda, minta panitia menonaktifkannya TANPA mengunci.
+
 ```json
 [
   { "code": "kunci_1", "label": "1 Kunci", "weight": 0, "chance": 0,

@@ -400,8 +400,19 @@ export class RewardsService implements OnModuleInit {
 
   // --------------------------- Hadiah spin ----------------------------
 
+  /**
+   * Daftar hadiah untuk digambar di roda web kedua.
+   *
+   * Hadiah TERKUNCI tetap ikut walau `active: false`. Justru itu gunanya
+   * kunci: hadiah utama tetap tampil di roda sebagai pemikat, tapi dijamin
+   * tak bisa didapat. Kalau ikut disaring di sini, hadiahnya hilang dari
+   * roda dan pemikatnya ikut hilang. `chance`-nya tetap 0 karena drawable()
+   * menolak yang terkunci, jadi pembagian peluang tidak terganggu.
+   */
   async listPrizes(includeInactive = false) {
-    const where = includeInactive ? {} : { active: true };
+    const where = includeInactive
+      ? {}
+      : [{ active: true }, { isLocked: true }];
     const items = await this.prizes.find({
       where,
       order: { sortOrder: "ASC", label: "ASC" },
