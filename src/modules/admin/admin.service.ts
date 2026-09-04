@@ -110,6 +110,29 @@ export class AdminService {
         -- Ditolak diambil dari arsip: barisnya sudah dihapus dari daily_votes
         -- supaya voter bisa mengajukan ulang.
         (select count(*) from rejections where kind = 'vote')::int   as rejected_votes,
+        -- Voter unik yang pernah ditolak, lalu mengajukan ulang dan akhirnya
+        -- disetujui. Menjawab "berapa yang tak menyerah setelah ditolak":
+        -- angka ditolak saja tak bisa dibedakan antara benar-benar hilang
+        -- atau sekadar mengulang. Dicocokkan lewat nomor WA karena baris
+        -- vote aslinya sudah dihapus saat ditolak.
+        (select count(distinct r.voter_phone) from rejections r
+          where r.kind = 'vote' and r.voter_phone is not null
+            and exists (
+              select 1 from daily_votes dv
+              where dv.voter_phone = r.voter_phone
+                and dv.status = 'approved' and dv.is_bot = false
+                and dv.created_at > r.created_at
+            ))::int                                                  as recovered_voters,
+        -- Voter unik yang ditolak dan TIDAK pernah kembali. Ini kehilangan
+        -- yang sesungguhnya.
+        (select count(distinct r.voter_phone) from rejections r
+          where r.kind = 'vote' and r.voter_phone is not null
+            and not exists (
+              select 1 from daily_votes dv
+              where dv.voter_phone = r.voter_phone
+                and dv.status = 'approved' and dv.is_bot = false
+                and dv.created_at > r.created_at
+            ))::int                                                  as lost_voters,
         (select count(*) from daily_votes where is_bot = true)::int  as bot_votes,
 
         -- Klaim kupon
