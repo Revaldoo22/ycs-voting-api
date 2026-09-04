@@ -305,9 +305,14 @@ export class RewardsIntegrationController {
   }
 
   /** Hadiah spin aktif beserta peluangnya (persen). */
+  /**
+   * Hadiah spin. Default hanya yang aktif (untuk digambar di roda).
+   * `?all=1` menyertakan hadiah nonaktif juga, dipakai kalau web kedua ingin
+   * menampilkan daftar lengkap termasuk Grand Prize yang belum dinyalakan.
+   */
   @Get("prizes")
-  prizes() {
-    return this.svc.listPrizes();
+  prizes(@Query("all") all?: string) {
+    return this.svc.listPrizes(all === "1" || all === "true");
   }
 
   /** Pilihan spin yang tersedia: 1x atau paket 5x + bonus. */

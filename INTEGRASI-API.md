@@ -502,6 +502,12 @@ Kalau gagal:
 
 **GET** `/rewards/prizes` - hadiah yang aktif, untuk digambar di roda.
 
+**GET** `/rewards/prizes?all=1` - **seluruh** hadiah termasuk yang nonaktif.
+Pakai ini kalau kalian mau menampilkan daftar lengkap hadiah (termasuk Grand
+Prize yang belum dinyalakan admin) sebagai informasi, bukan sebagai isi roda.
+Bedakan keduanya lewat field `active`: yang `false` **tidak akan pernah keluar**
+sampai admin menyalakannya, jadi jangan dijanjikan bisa didapat.
+
 ```json
 [
   { "code": "kunci_1", "label": "1 Kunci", "weight": 0, "chance": 0,
@@ -638,6 +644,7 @@ hadiah aktif juga `400`.
 # Katalog, hadiah, dan pilihan spin (untuk menggambar UI)
 curl $BASE/rewards/catalog      -H "X-Api-Key: $KEY"
 curl $BASE/rewards/prizes       -H "X-Api-Key: $KEY"
+curl "$BASE/rewards/prizes?all=1" -H "X-Api-Key: $KEY"   # + hadiah nonaktif
 curl $BASE/rewards/spin-options -H "X-Api-Key: $KEY"
 
 # Saldo + harga spin akun ini
