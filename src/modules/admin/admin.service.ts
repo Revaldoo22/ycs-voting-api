@@ -284,11 +284,23 @@ export class AdminService {
     const r = this.clampSpan(rng.from, rng.to);
     return this.db.query(
       `select to_char(d::date, 'YYYY-MM-DD') as day,
+              -- Akun voter yang DIBUAT hari itu. Peserta hasil sync punya
+              -- role 'participant', jadi dikecualikan supaya angkanya benar
+              -- menggambarkan pertumbuhan voter.
+              (select count(*) from profiles pr
+                where pr.role = 'voter'
+                  and pr.created_at::date = d::date)::int as accounts,
+              -- Orang yang benar-benar vote hari itu, dihitung per nomor WA
+              -- unik. Bot bukan orang, jadi tak ikut dihitung.
               (select count(distinct voter_phone) from daily_votes
-               where voter_phone is not null
-                 -- Bot bukan orang, jadi tak boleh menaikkan kurva voter.
-                 and is_bot = false
-                 and created_at::date <= d::date)::int as cumulative
+                where voter_phone is not null
+                  and is_bot = false
+                  and created_at::date = d::date)::int as voters,
+              -- Akumulasi voter unik, dipertahankan untuk pembanding tren.
+              (select count(distinct voter_phone) from daily_votes
+                where voter_phone is not null
+                  and is_bot = false
+                  and created_at::date <= d::date)::int as cumulative
        from generate_series($1::date, $2::date, interval '1 day') d
        order by d`,
       [r.from, r.to],
