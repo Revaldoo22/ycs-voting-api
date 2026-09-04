@@ -30,6 +30,14 @@ export class AppSettings {
   @Column({ name: "spin_first_cost", type: "int", default: 3 })
   spinFirstCost!: number;
 
+  /**
+   * Roda spin aktif atau tidak. Beda dari `spin_bundle_enabled` yang hanya
+   * mematikan paket 5x: ini mematikan SELURUH spin di web kedua, dipakai saat
+   * hadiah belum siap atau event spin ditutup.
+   */
+  @Column({ name: "spin_enabled", type: "boolean", default: true })
+  spinEnabled!: boolean;
+
   /** Paket banyak spin sekaligus tersedia atau tidak (opsi "5x + bonus"). */
   @Column({ name: "spin_bundle_enabled", type: "boolean", default: true })
   spinBundleEnabled!: boolean;

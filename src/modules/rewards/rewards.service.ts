@@ -3,6 +3,7 @@ import {
   ConflictException,
   Injectable,
   NotFoundException,
+  OnModuleInit,
 } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
 import { DataSource, EntityManager, Repository } from "typeorm";
@@ -16,6 +17,7 @@ import {
   SpinPrize,
   SpinResult,
   type SpinSource,
+  PointAdjustment,
 } from "../../database/entities";
 
 /** Saldo yang bisa dibelanjakan oleh satu akun. */
@@ -24,6 +26,8 @@ export type Balance = {
   name: string | null;
   /** Poin dari vote yang masuk (1 vote = 1 poin). TIDAK pernah berkurang. */
   points_earned: number;
+  /** Penyesuaian manual admin; bisa negatif. */
+  points_adjusted: number;
   /** Poin yang sudah dipakai untuk menukar hadiah / membeli spin. */
   points_spent: number;
   /** Sisa poin yang bisa dibelanjakan. */
@@ -37,7 +41,7 @@ export type Balance = {
 };
 
 @Injectable()
-export class RewardsService {
+export class RewardsService implements OnModuleInit {
   constructor(
     private readonly db: DataSource,
     @InjectRepository(RewardCatalog)
@@ -54,7 +58,30 @@ export class RewardsService {
     private readonly profiles: Repository<Profile>,
     @InjectRepository(SpinAccount)
     private readonly accounts: Repository<SpinAccount>,
+    @InjectRepository(PointAdjustment)
+    private readonly adjustments: Repository<PointAdjustment>,
   ) {}
+
+  /**
+   * DB_SYNC mati di produksi, jadi tabel baru di-provision idempoten saat
+   * boot, mengikuti pola NotificationsService.
+   */
+  async onModuleInit() {
+    await this.db.query(`
+      create table if not exists point_adjustments (
+        id uuid primary key default gen_random_uuid(),
+        email text not null,
+        points int not null,
+        reason text not null,
+        created_by text,
+        created_at timestamptz not null default now()
+      )
+    `);
+    await this.db.query(
+      `create index if not exists point_adj_email
+         on point_adjustments (email)`,
+    );
+  }
 
   // ----------------------------- Setelan -----------------------------
 
@@ -97,6 +124,9 @@ export class RewardsService {
       });
     }
     return {
+      // Web kedua wajib memeriksa ini: kalau false, sembunyikan roda dan
+      // tampilkan pesan spin sedang ditutup.
+      spin_enabled: s.spinEnabled,
       spin_point_cost: s.spinPointCost,
       spin_first_cost: s.spinFirstCost,
       options,
@@ -104,6 +134,7 @@ export class RewardsService {
   }
 
   async updateSpinOptions(patch: {
+    spin_enabled?: boolean;
     spin_point_cost?: number;
     spin_first_cost?: number;
     spin_bundle_enabled?: boolean;
@@ -111,6 +142,7 @@ export class RewardsService {
     spin_bundle_bonus?: number;
   }) {
     const s = await this.appSettings();
+    if (patch.spin_enabled !== undefined) s.spinEnabled = patch.spin_enabled;
     if (patch.spin_point_cost !== undefined) s.spinPointCost = patch.spin_point_cost;
     if (patch.spin_first_cost !== undefined) s.spinFirstCost = patch.spin_first_cost;
     if (patch.spin_bundle_enabled !== undefined)
@@ -155,6 +187,11 @@ export class RewardsService {
            where lower(p.email) = $1
              and dv.status = 'approved'
              and dv.is_bot = false)::int as points_earned,
+         -- Penyesuaian manual admin. Terpisah dari vote supaya menambah
+         -- saldo tak menaikkan statistik event maupun klasemen. Bisa negatif.
+         (select coalesce(sum(points), 0)
+            from point_adjustments
+           where lower(email) = $1)::int as points_adjusted,
          (select coalesce(sum(point_cost), 0)
             from reward_redemptions
            where lower(email) = $1 and status <> 'canceled')::int as points_spent,
@@ -172,6 +209,7 @@ export class RewardsService {
       [email],
     )) as {
       points_earned: number;
+      points_adjusted: number;
       points_spent: number;
       keys_spent: number;
       keys_earned: number;
@@ -188,8 +226,14 @@ export class RewardsService {
       email,
       name: profile?.name ?? null,
       points_earned: r.points_earned,
+      points_adjusted: r.points_adjusted,
       points_spent: r.points_spent,
-      points_available: r.points_earned - r.points_spent,
+      // Penyesuaian admin ikut menambah/mengurangi saldo. Dijaga minimal 0
+      // supaya penyesuaian negatif yang berlebihan tak bikin saldo minus.
+      points_available: Math.max(
+        0,
+        r.points_earned + r.points_adjusted - r.points_spent,
+      ),
       keys_earned: r.keys_earned,
       keys_spent: r.keys_spent,
       keys_available: r.keys_earned - r.keys_spent,
@@ -197,6 +241,65 @@ export class RewardsService {
       // pakai poin, jadi dijaga minimal 0.
       spins_available: Math.max(0, r.spins_granted - r.spins_used),
     };
+  }
+
+  // ------------------- Penyesuaian poin manual ------------------------
+
+  /**
+   * Tambah / kurangi saldo poin sebuah akun tanpa membuat vote.
+   *
+   * Dipakai untuk testing dan koreksi. Sengaja bukan lewat vote: poin belanja
+   * dihitung dari vote approved, jadi vote palsu akan menaikkan statistik
+   * event, klasemen, dan Vote Masuk.
+   */
+  async adjustPoints(input: {
+    email: string;
+    points: number;
+    reason: string;
+    createdBy?: string | null;
+  }) {
+    const email = input.email.trim().toLowerCase();
+    if (!email) throw new BadRequestException("Email wajib diisi.");
+    if (!Number.isInteger(input.points) || input.points === 0) {
+      throw new BadRequestException("Jumlah poin harus bilangan bulat bukan 0.");
+    }
+    if (!input.reason.trim()) {
+      throw new BadRequestException("Alasan wajib diisi.");
+    }
+
+    await this.adjustments.save(
+      this.adjustments.create({
+        email,
+        points: input.points,
+        reason: input.reason.trim(),
+        createdBy: input.createdBy ?? null,
+      }),
+    );
+    // Saldo terbaru langsung dikembalikan supaya admin tak perlu memuat ulang.
+    return { ok: true, balance: await this.getBalance(email) };
+  }
+
+  /** Riwayat penyesuaian; tanpa email berarti seluruh akun. */
+  listAdjustments(email?: string) {
+    const e = email?.trim().toLowerCase() || null;
+    return this.db.query(
+      `select a.id, a.email, a.points, a.reason, a.created_by, a.created_at,
+              pr.name as account_name
+       from point_adjustments a
+       left join profiles pr on lower(pr.email) = a.email
+       where ($1::text is null or a.email = $1)
+       order by a.created_at desc
+       limit 200`,
+      [e],
+    );
+  }
+
+  /** Batalkan satu penyesuaian. Saldo kembali seperti sebelum baris ini. */
+  async removeAdjustment(id: string) {
+    const row = await this.adjustments.findOneBy({ id });
+    if (!row) throw new NotFoundException("Penyesuaian tidak ditemukan.");
+    await this.adjustments.delete({ id });
+    return { ok: true, balance: await this.getBalance(row.email) };
   }
 
   // --------------------------- Katalog tukar --------------------------
@@ -622,6 +725,13 @@ export class RewardsService {
   async spin(emailRaw: string, option: "single" | "bundle" = "single") {
     const email = emailRaw.trim().toLowerCase();
     if (!email) throw new BadRequestException("Email wajib diisi.");
+
+    // Gerbang di server, bukan hanya menyembunyikan tombol: web kedua bisa
+    // memanggil endpoint langsung.
+    const st = await this.appSettings();
+    if (!st.spinEnabled) {
+      throw new BadRequestException("Roda spin sedang ditutup panitia.");
+    }
 
     const cfg = await this.getSpinOptions();
     const chosen = cfg.options.find((o) => o.code === option);

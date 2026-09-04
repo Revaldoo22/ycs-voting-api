@@ -17,6 +17,7 @@ import {
   IsOptional,
   IsString,
   MaxLength,
+  Max,
   Min,
   MinLength,
 } from "class-validator";
@@ -24,6 +25,8 @@ import { JwtGuard } from "../../common/guards/jwt.guard";
 import { RolesGuard } from "../../common/guards/roles.guard";
 import { Roles } from "../../common/decorators/roles.decorator";
 import { ApiKeyGuard } from "../../common/guards/api-key.guard";
+import { CurrentUser } from "../../common/decorators/current-user.decorator";
+import type { JwtPayload } from "../../common/guards/jwt.guard";
 import { RewardsService } from "./rewards.service";
 
 // ------------------------------- DTO ---------------------------------
@@ -123,9 +126,28 @@ class SpinOptionsDto {
   @IsOptional() @IsInt() @Min(0) spin_point_cost?: number;
   /** Harga diskon spin pertama tiap akun (sekali seumur akun). */
   @IsOptional() @IsInt() @Min(0) spin_first_cost?: number;
+  /** Matikan seluruh roda spin di web kedua. */
+  @IsOptional() @IsBoolean() spin_enabled?: boolean;
   @IsOptional() @IsBoolean() spin_bundle_enabled?: boolean;
   @IsOptional() @IsInt() @Min(1) spin_bundle_count?: number;
   @IsOptional() @IsInt() @Min(0) spin_bundle_bonus?: number;
+}
+
+class AdjustPointsDto {
+  @IsString()
+  @MaxLength(200)
+  email!: string;
+
+  /** Boleh negatif untuk menarik kembali poin. */
+  @IsInt()
+  @Min(-1000000)
+  @Max(1000000)
+  points!: number;
+
+  @IsString()
+  @MinLength(3)
+  @MaxLength(300)
+  reason!: string;
 }
 
 class RedeemDto {
@@ -228,6 +250,37 @@ export class RewardsAdminController {
   @Delete("catalog/:id")
   removeCatalog(@Param("id", ParseUUIDPipe) id: string) {
     return this.svc.removeCatalog(id);
+  }
+
+  /** Saldo satu akun, untuk halaman penyesuaian poin di admin. */
+  @Get("balance/:email")
+  adminBalance(@Param("email") email: string) {
+    return this.svc.getBalance(email);
+  }
+
+  // --- Penyesuaian poin manual ---
+
+  /** Riwayat penyesuaian; `?email=` untuk satu akun. */
+  @Get("point-adjustments")
+  listAdjustments(@Query("email") email?: string) {
+    return this.svc.listAdjustments(email);
+  }
+
+  /** Tambah / kurangi saldo poin sebuah akun tanpa membuat vote. */
+  @Post("point-adjustments")
+  adjustPoints(@Body() dto: AdjustPointsDto, @CurrentUser() user: JwtPayload) {
+    return this.svc.adjustPoints({
+      email: dto.email,
+      points: dto.points,
+      reason: dto.reason,
+      createdBy: user?.name ?? user?.sub ?? null,
+    });
+  }
+
+  /** Batalkan satu penyesuaian; saldo kembali seperti sebelumnya. */
+  @Delete("point-adjustments/:id")
+  removeAdjustment(@Param("id", ParseUUIDPipe) id: string) {
+    return this.svc.removeAdjustment(id);
   }
 
   // --- Hadiah spin ---

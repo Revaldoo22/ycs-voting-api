@@ -8,6 +8,7 @@ import {
   SpinAccount,
   SpinPrize,
   SpinResult,
+  PointAdjustment,
 } from "../../database/entities";
 import { AuthModule } from "../auth/auth.module";
 import { ApiKeyGuard } from "../../common/guards/api-key.guard";
@@ -26,6 +27,7 @@ import { RewardsService } from "./rewards.service";
       RewardRedemption,
       SpinResult,
       SpinAccount,
+      PointAdjustment,
       AppSettings,
       Profile,
     ]),

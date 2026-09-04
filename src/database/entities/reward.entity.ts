@@ -2,6 +2,7 @@ import {
   Column,
   CreateDateColumn,
   Entity,
+  Index,
   PrimaryColumn,
   PrimaryGeneratedColumn,
   UpdateDateColumn,
@@ -302,6 +303,41 @@ export class SpinAccount {
   /** Sudah pernah memakai harga diskon spin pertama atau belum. */
   @Column({ name: "first_spin_used", type: "boolean", default: false })
   firstSpinUsed!: boolean;
+
+  @CreateDateColumn({ name: "created_at", type: "timestamptz" })
+  createdAt!: Date;
+}
+
+/**
+ * Penyesuaian saldo poin manual oleh admin, terpisah dari vote.
+ *
+ * Sengaja TIDAK lewat vote: poin belanja dihitung dari vote approved, jadi
+ * membuat vote palsu untuk menambah saldo akan menaikkan statistik event,
+ * klasemen, dan Vote Masuk. Baris di sini hanya menggeser saldo spin.
+ *
+ * `points` boleh negatif untuk menarik kembali poin yang salah diberikan.
+ */
+@Entity("point_adjustments")
+@Index("point_adj_email", ["email"])
+export class PointAdjustment {
+  @PrimaryGeneratedColumn("uuid")
+  id!: string;
+
+  /** Email akun, kunci yang sama dipakai seluruh sistem reward. */
+  @Column({ type: "text" })
+  email!: string;
+
+  /** Poin yang ditambahkan; negatif berarti dikurangi. */
+  @Column({ type: "int" })
+  points!: number;
+
+  /** Alasan wajib, supaya riwayat bisa dipertanggungjawabkan. */
+  @Column({ type: "text" })
+  reason!: string;
+
+  /** Admin yang melakukan, disimpan sebagai teks agar riwayat tetap terbaca. */
+  @Column({ name: "created_by", type: "text", nullable: true })
+  createdBy!: string | null;
 
   @CreateDateColumn({ name: "created_at", type: "timestamptz" })
   createdAt!: Date;
