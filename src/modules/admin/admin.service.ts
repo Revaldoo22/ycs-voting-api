@@ -673,13 +673,24 @@ export class AdminService {
       union all
       -- Undian: pemilik kupon jadi "voter", kode kupon + hadiah mengisi
       -- kolom peserta. Poin tak berlaku, jadi 0.
+      --
+      -- Untuk baris 'won' hadiah dibaca dari coupons, BUKAN dari raffle_events.
+      -- Mode roda mencatat log sebelum roda berhenti, jadi prize di log bisa
+      -- berupa tebakan awal dari kolom admin. coupons adalah sumber kebenaran
+      -- hadiah, dan itu yang dilihat voter di Kupon Saya.
       select 'raffle'::text,
              re.coupon_code ||
-               coalesce(' - ' || re.prize, '') as source,
+               coalesce(
+                 ' - ' || case
+                   when re.event_type = 'won' and c.won_at is not null
+                     then coalesce(c.prize, re.prize)
+                   else re.prize
+                 end, '') as source,
              coalesce(pr.name, 'Voter terhapus'), pr.phone_number,
              re.coupon_code, null::uuid, 0, re.event_type, re.created_at
       from raffle_events re
       left join profiles pr on pr.id = re.profile_id
+      left join coupons c on c.code = re.coupon_code
     ),
     filtered as (
       select * from acts

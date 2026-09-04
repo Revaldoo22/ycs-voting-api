@@ -119,7 +119,10 @@ export class RaffleController {
          (select name from profiles p where p.id = c.profile_id) as name,
          (select phone_number from profiles p where p.id = c.profile_id) as phone_number,
          (select email from profiles p where p.id = c.profile_id) as email`,
-      [dto.prize?.trim() || "Handphone"],
+      // Tanpa default hadiah utama: dulu nilainya "Handphone", jadi undian
+      // yang dikirim tanpa hadiah tercatat menang hadiah utama hanya karena
+      // kolomnya dibiarkan kosong.
+      [dto.prize?.trim() || "Hadiah undian"],
     );
     // UPDATE ... RETURNING lewat TypeORM: [records, affectedCount]
     const records = Array.isArray(rows[0]) ? rows[0] : rows;
@@ -216,14 +219,36 @@ export class RaffleController {
     return { ok: true };
   }
 
-  /** Update hadiah pemenang setelah putaran Spin Wheel. */
+  /**
+   * Update hadiah pemenang setelah putaran Spin Wheel.
+   *
+   * Baris raffle_events-nya ikut diperbarui. Mode roda memanggil /draw SEBELUM
+   * roda berhenti, jadi log awal terisi hadiah tebakan dari kolom admin. Kalau
+   * hanya coupons yang dikoreksi, Log Aktivitas selamanya menampilkan hadiah
+   * yang salah, dan panitia mengira ada yang menang hadiah utama padahal
+   * tidak.
+   */
   @Post("winners/:code/prize")
   async updatePrize(@Param("code") code: string, @Body("prize") prize: string) {
     if (!prize) throw new NotFoundException("Hadiah tidak valid.");
-    await this.db.query(
-      `update coupons set prize = $1 where code = $2 and won_at is not null`,
-      [prize.trim(), code],
-    );
+    const clean = prize.trim();
+    await this.db.transaction(async (em) => {
+      await em.query(
+        `update coupons set prize = $1 where code = $2 and won_at is not null`,
+        [clean, code],
+      );
+      // Hanya log kemenangan terakhir kupon ini, supaya riwayat undian lama
+      // yang sudah dibatalkan tidak ikut tertimpa.
+      await em.query(
+        `update raffle_events set prize = $1
+          where id = (
+            select id from raffle_events
+             where coupon_code = $2 and event_type = 'won'
+             order by created_at desc limit 1
+          )`,
+        [clean, code],
+      );
+    });
     return { ok: true };
   }
 }
