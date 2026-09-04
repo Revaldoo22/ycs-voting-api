@@ -100,6 +100,7 @@ class PrizeDto {
   @IsOptional() @IsInt() @Min(0) weight?: number;
   @IsOptional() @IsBoolean() is_empty?: boolean;
   @IsOptional() @IsInt() @Min(0) key_grant?: number;
+  // null = tanpa batas, dan @IsOptional sudah mengizinkannya.
   @IsOptional() @IsInt() @Min(0) stock?: number | null;
   /** Batas jumlah AKUN penerima (mis. 41 orang), bukan jumlah keping. */
   @IsOptional() @IsInt() @Min(0) winner_quota?: number | null;
@@ -114,6 +115,8 @@ class PrizeDto {
   @IsOptional() @IsInt() @Min(0) auto_at_spins?: number | null;
   @IsOptional() @IsString() @MaxLength(20) color?: string;
   @IsOptional() @IsBoolean() active?: boolean;
+  /** Kunci mutlak: tak pernah keluar lewat jalur mana pun. Untuk grand prize. */
+  @IsOptional() @IsBoolean() is_locked?: boolean;
   @IsOptional() @IsInt() sort_order?: number;
 }
 
@@ -131,6 +134,15 @@ class SpinOptionsDto {
   @IsOptional() @IsBoolean() spin_bundle_enabled?: boolean;
   @IsOptional() @IsInt() @Min(1) spin_bundle_count?: number;
   @IsOptional() @IsInt() @Min(0) spin_bundle_bonus?: number;
+
+  /**
+   * Kode hadiah yang selalu keluar tiap spin. Kirim null / string kosong
+   * untuk kembali ke roda acak biasa.
+   */
+  @IsOptional() @IsString() @MaxLength(60) spin_forced_prize_code?: string | null;
+
+  /** Tahan hadiah paksa sampai akun mencapai jumlah spin ini. */
+  @IsOptional() @IsInt() @Min(0) spin_forced_min_spins?: number | null;
 }
 
 class AdjustPointsDto {
@@ -203,6 +215,7 @@ function toPrizeEntity(d: PrizeDto | PrizePatchDto) {
     ...(d.auto_at_spins !== undefined && { autoAtSpins: d.auto_at_spins }),
     ...(d.color !== undefined && { color: d.color }),
     ...(d.active !== undefined && { active: d.active }),
+    ...(d.is_locked !== undefined && { isLocked: d.is_locked }),
     ...(d.sort_order !== undefined && { sortOrder: d.sort_order }),
   };
 }

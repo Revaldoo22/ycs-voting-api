@@ -394,14 +394,37 @@ terjadi tanpa perlu menang undian. Tumbler juga dibatasi **1 per akun**, jadi
 kalau peserta sudah punya (lewat jalur manapun) dan rodanya kebetulan mendarat
 di Tumbler lagi, hasilnya tetap 💨 supaya tidak dobel.
 
-**d. Grand Prize mati secara default.** E-Money, Handphone, dan Sepeda Listrik
-bukan berpeluang kecil, tapi memang **tidak dimasukkan ke roda** sampai admin
-menyalakannya. Selama `active: false`, tidak ada satu pun peserta yang bisa
-mendapatkannya. Tetap boleh digambar di roda sebagai pemanis, tapi jangan
-menjanjikannya ke peserta.
+**d. Grand Prize terkunci.** E-Money, Handphone, dan Sepeda Listrik bukan
+berpeluang kecil, tapi **dikunci**: selama `is_locked: true`, tidak ada satu
+pun peserta yang bisa mendapatkannya lewat jalur apa pun, termasuk jalur
+otomatis, jaminan, dan mode hadiah pasti. Tetap boleh digambar di roda sebagai
+pemanis, tapi jangan menjanjikannya ke peserta.
+
+> Kunci berbeda dari `active: false`. Nonaktif hanya mengeluarkan hadiah dari
+> undian acak, sedangkan jalur otomatis dan jaminan tidak melihat `active`.
+> Kunci menutup semuanya, jadi itulah penanda yang harus dipercaya.
+
+**d2. Mode hadiah pasti.** Panitia bisa menetapkan satu hadiah yang selalu
+keluar tiap spin, dengan ambang jumlah spin. Contoh: "Tumbler, mulai spin
+ke-10" berarti spin 1 sampai 9 hasilnya 💨 dan spin ke-10 pasti Tumbler.
+
+Setelan yang sedang berlaku ada di `GET /rewards/spin-options`:
+
+| Field | Arti |
+|---|---|
+| `spin_forced_prize_code` | Kode hadiah yang selalu keluar. `null` = roda acak normal. |
+| `spin_forced_min_spins` | Hadiah itu baru keluar mulai spin ke-N. `null`/`0` = sejak spin pertama. |
+
+> **Web kedua tidak perlu memakai dua field ini untuk menentukan hadiah.**
+> Hasil tetap datang dari `POST /rewards/spin`. Keduanya hanya untuk
+> keperluan tampilan, mis. menulis "kumpulkan 10 spin untuk Tumbler".
+
+Jatah penerima dan batas per akun tetap berlaku di mode ini. Kalau jatah
+hadiah pasti sudah habis untuk akun tersebut, hasilnya 💨, bukan menembus
+jatah.
 
 > Data hadiah masih memuat **VIP Ticket Bali** dari konfigurasi lama, juga
-> nonaktif. Kalau tidak lagi dipakai, minta panitia menghapusnya lewat admin
+> terkunci. Kalau tidak lagi dipakai, minta panitia menghapusnya lewat admin
 > supaya isi `GET /rewards/prizes?all=1` sama dengan pengumuman ke peserta.
 
 **e. 💨 adalah hasil cadangan.** Muncul kalau peserta tidak dapat apa-apa,
@@ -515,9 +538,9 @@ Kalau gagal:
 
 **GET** `/rewards/prizes?all=1` - **seluruh** hadiah termasuk yang nonaktif.
 Pakai ini kalau kalian mau menampilkan daftar lengkap hadiah (termasuk Grand
-Prize yang belum dinyalakan admin) sebagai informasi, bukan sebagai isi roda.
-Bedakan keduanya lewat field `active`: yang `false` **tidak akan pernah keluar**
-sampai admin menyalakannya, jadi jangan dijanjikan bisa didapat.
+Prize yang terkunci) sebagai informasi, bukan sebagai isi roda. Bedakan lewat
+field `is_locked`: yang `true` **tidak akan pernah keluar** lewat jalur apa
+pun, jadi jangan dijanjikan bisa didapat.
 
 ```json
 [
@@ -526,13 +549,13 @@ sampai admin menyalakannya, jadi jangan dijanjikan bisa didapat.
     "winner_quota": 41, "max_per_account": 1,
     "is_guaranteed": true, "guarantee_min_spin": 1, "guarantee_max_spin": 5,
     "auto_at_points": null, "auto_at_spins": null,
-    "color": null, "active": true, "sort_order": 5 },
+    "color": null, "active": true, "is_locked": false, "sort_order": 5 },
   { "code": "tumbler", "label": "Tumbler", "weight": 1, "chance": 0.17,
     "is_empty": false, "key_grant": 0, "stock": null,
     "winner_quota": 8, "max_per_account": 1,
     "is_guaranteed": false, "guarantee_min_spin": 1, "guarantee_max_spin": 5,
     "auto_at_points": 100, "auto_at_spins": 10,
-    "color": null, "active": true, "sort_order": 6 }
+    "color": null, "active": true, "is_locked": false, "sort_order": 6 }
 ]
 ```
 
@@ -546,9 +569,11 @@ sampai admin menyalakannya, jadi jangan dijanjikan bisa didapat.
 | `is_empty` | `true` untuk 💨 - tampilkan "belum beruntung" |
 | `key_grant` | kunci yang didapat kalau mendarat di sini |
 | `stock` | sisa barang; yang habis otomatis tidak keluar lagi |
+| `is_locked` | `true` = **dijamin tidak bisa didapat** siapa pun, lewat jalur apa pun |
 
 > **`chance` tidak berjumlah 100.** Angka ini hanya menggambarkan undian acak.
-> Hadiah berjaminan (`is_guaranteed: true`) dan hadiah nonaktif bernilai `0`
+> Hadiah berjaminan (`is_guaranteed: true`), hadiah terkunci, dan hadiah
+> nonaktif bernilai `0`
 > karena tidak ikut diundi, padahal Kunci justru **pasti** didapat. Jadi
 > jangan menampilkan `chance` Kunci sebagai "peluang 0%" ke peserta, itu
 > menyesatkan.
@@ -585,8 +610,11 @@ sebelum menampilkan tombol spin.
 
 ```json
 {
+  "spin_enabled": true,
   "spin_point_cost": 10,
   "spin_first_cost": 3,
+  "spin_forced_prize_code": "tumbler",
+  "spin_forced_min_spins": 10,
   "options": [
     { "code": "single", "label": "1x Spin", "spins": 1, "bonus": 0, "point_cost": 10 },
     { "code": "bundle", "label": "5x Spin + 1 Bonus", "spins": 5, "bonus": 1, "point_cost": 50 }
@@ -597,6 +625,14 @@ sebelum menampilkan tombol spin.
 Jumlah spin, bonus, dan harganya diatur admin - **baca dari endpoint ini**,
 jangan di-hardcode. Kalau paket dimatikan admin, `options` hanya berisi
 `single`.
+
+> **`spin_enabled: false` wajib dihormati:** sembunyikan rodanya dan tampilkan
+> pesan spin sedang ditutup. Kalau tetap dipanggil, `POST /rewards/spin`
+> menolak dengan pesan "Roda spin sedang ditutup panitia." Panitia memakai ini
+> saat hadiah belum siap.
+
+> `spin_forced_prize_code` dan `spin_forced_min_spins`: lihat 8.1 huruf d2.
+> Hanya untuk tampilan, hasil hadiah tetap dari `POST /rewards/spin`.
 
 > `point_cost` pada paket **belum memperhitungkan diskon spin pertama**: paket
 > selalu dihitung dengan harga normal. Diskon hanya berlaku untuk spin satuan.

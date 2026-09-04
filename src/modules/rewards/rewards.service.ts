@@ -81,6 +81,19 @@ export class RewardsService implements OnModuleInit {
       `create index if not exists point_adj_email
          on point_adjustments (email)`,
     );
+    // DB_SYNC=false di production, jadi kolom baru disediakan di sini.
+    await this.db.query(
+      `alter table spin_prizes
+         add column if not exists is_locked boolean not null default false`,
+    );
+    await this.db.query(
+      `alter table app_settings
+         add column if not exists spin_forced_prize_code text`,
+    );
+    await this.db.query(
+      `alter table app_settings
+         add column if not exists spin_forced_min_spins int`,
+    );
   }
 
   // ----------------------------- Setelan -----------------------------
@@ -129,6 +142,11 @@ export class RewardsService implements OnModuleInit {
       spin_enabled: s.spinEnabled,
       spin_point_cost: s.spinPointCost,
       spin_first_cost: s.spinFirstCost,
+      // Mode paksa. Web kedua TIDAK perlu memakai ini untuk menentukan
+      // hadiah: hasil tetap datang dari POST /spin. Dikirim hanya supaya
+      // panel admin bisa menampilkan setelan yang sedang berlaku.
+      spin_forced_prize_code: s.spinForcedPrizeCode,
+      spin_forced_min_spins: s.spinForcedMinSpins,
       options,
     };
   }
@@ -140,6 +158,8 @@ export class RewardsService implements OnModuleInit {
     spin_bundle_enabled?: boolean;
     spin_bundle_count?: number;
     spin_bundle_bonus?: number;
+    spin_forced_prize_code?: string | null;
+    spin_forced_min_spins?: number | null;
   }) {
     const s = await this.appSettings();
     if (patch.spin_enabled !== undefined) s.spinEnabled = patch.spin_enabled;
@@ -151,6 +171,23 @@ export class RewardsService implements OnModuleInit {
       s.spinBundleCount = patch.spin_bundle_count;
     if (patch.spin_bundle_bonus !== undefined)
       s.spinBundleBonus = patch.spin_bundle_bonus;
+    if (patch.spin_forced_prize_code !== undefined) {
+      const code = patch.spin_forced_prize_code?.trim().toLowerCase() || null;
+      if (code) {
+        const target = await this.prizes.findOneBy({ code });
+        if (!target)
+          throw new BadRequestException(`Hadiah "${code}" tidak ada.`);
+        // Ditolak di sini juga, bukan hanya diabaikan saat spin, supaya
+        // panitia langsung tahu hadiah itu terkunci.
+        if (target.isLocked)
+          throw new BadRequestException(
+            `"${target.label}" terkunci. Buka kuncinya dulu bila memang mau dibagikan.`,
+          );
+      }
+      s.spinForcedPrizeCode = code;
+    }
+    if (patch.spin_forced_min_spins !== undefined)
+      s.spinForcedMinSpins = patch.spin_forced_min_spins;
     await this.settings.save(s);
     return this.getSpinOptions();
   }
@@ -389,6 +426,7 @@ export class RewardsService implements OnModuleInit {
       auto_at_spins: p.autoAtSpins,
       color: p.color,
       active: p.active,
+      is_locked: p.isLocked,
       sort_order: p.sortOrder,
       // Peluang di UNDIAN ACAK saja. Hadiah berjaminan & hadiah yang
       // diberikan otomatis bernilai 0 di sini karena tidak lewat undian.
@@ -401,6 +439,7 @@ export class RewardsService implements OnModuleInit {
 
   /** Hadiah ikut diundi hanya bila aktif, berbobot, dan stoknya masih ada. */
   private drawable(p: SpinPrize): boolean {
+    if (p.isLocked) return false;
     return p.active && p.weight > 0 && (p.stock === null || p.stock > 0);
   }
 
@@ -412,6 +451,10 @@ export class RewardsService implements OnModuleInit {
    * tidak boleh dipakai menilai apakah hadiah itu boleh diberikan.
    */
   private available(p: SpinPrize): boolean {
+    // Kunci diperiksa di sini, gerbang tunggal yang dilewati SEMUA jalur
+    // pemberian hadiah (acak, otomatis, jaminan, paksa). Menaruhnya hanya di
+    // undian acak tidak cukup: jalur otomatis dan jaminan tak melihat active.
+    if (p.isLocked) return false;
     return p.active && (p.stock === null || p.stock > 0);
   }
 
@@ -778,13 +821,40 @@ export class RewardsService implements OnModuleInit {
     const batchId = randomUUID();
     const results: SpinResult[] = [];
 
+    // Mode paksa: hadiah yang sama untuk setiap spin, melewati undian acak.
+    // Hadiah terkunci tidak boleh dipaksakan, dan kuota tetap dihormati:
+    // begitu tak bisa diklaim, hasilnya jatuh ke Dash, bukan menembus jatah.
+    const forcedCode = settings.spinForcedPrizeCode?.trim().toLowerCase() || null;
+    // Hadiah terkunci diabaikan: kunci lebih kuat dari mode paksa, jadi
+    // salah setel di admin tidak bisa membocorkan grand prize.
+    const forced = forcedCode
+      ? (all.find((p) => p.code === forcedCode && !p.isLocked) ?? null)
+      : null;
+    const forcedMin = Math.max(0, settings.spinForcedMinSpins ?? 0);
+
     for (let i = 0; i < paid + bonus; i++) {
       const spinNo = before + i + 1; // spin ke berapa untuk akun ini
       const isBonus = i >= paid;
       let given: SpinResult | null = null;
 
+      // 0. Hadiah paksa. Didahulukan supaya hasilnya benar-benar pasti, dan
+      //    ditahan sampai ambang spin terpenuhi (mis. Tumbler baru muncul
+      //    pada spin ke-10). Sebelum ambang, atau setelah jatahnya habis,
+      //    hasilnya Dash di langkah 4. Kunci masih bisa keluar di langkah 1
+      //    karena jalurnya terpisah dan jatahnya sendiri.
+      if (forced && spinNo >= forcedMin && (await this.claimable(forced, email))) {
+        given = await this.record(
+          forced,
+          email,
+          profile?.id ?? null,
+          batchId,
+          isBonus,
+          "auto",
+        );
+      }
+
       // 1. Titik jaminan kunci.
-      if (acc.keySpinTarget !== null && spinNo === acc.keySpinTarget) {
+      if (!given && acc.keySpinTarget !== null && spinNo === acc.keySpinTarget) {
         const keyPrize = all.find((p) => p.isGuaranteed);
         if (keyPrize && (await this.claimable(keyPrize, email))) {
           given = await this.record(
@@ -800,7 +870,12 @@ export class RewardsService implements OnModuleInit {
       }
 
       // 2. Ambang otomatis (mis. Tumbler saat 100 poin ATAU 10x spin).
-      if (!given) {
+      //
+      //    Dilewati saat mode paksa aktif, karena ambang di sini bisa lebih
+      //    longgar dari ambang mode paksa. Contoh: Tumbler ber-autoAtPoints
+      //    100 akan keluar sebelum spin ke-10 bagi akun berpoin banyak,
+      //    padahal panitia menahannya sampai 10x spin.
+      if (!given && !forced) {
         const pts = bal.points_earned;
         for (const p of all) {
           if (p.autoAtPoints === null && p.autoAtSpins === null) continue;
@@ -822,7 +897,11 @@ export class RewardsService implements OnModuleInit {
       }
 
       // 3. Undian acak. Hadiah berjaminan dikeluarkan dari kolam ini.
-      if (!given) {
+      //
+      //    Dilewati saat mode paksa aktif: hasilnya harus pasti, jadi yang
+      //    belum memenuhi ambang atau sudah habis jatahnya jatuh ke Dash di
+      //    langkah 4, bukan mendapat hadiah acak lain.
+      if (!given && !forced) {
         // Dash IKUT kolam undian (bobot penyeimbang), supaya peluang hadiah
         // seperti 1:300 benar-benar 1 dari 300, bukan 1 dari jumlah hadiah.
         // Hadiah berjaminan tetap dikeluarkan: jalurnya sendiri.
@@ -973,21 +1052,31 @@ export class RewardsService implements OnModuleInit {
 
     // Aturan mengikuti dokumen "Cara Kerja Spin Keberuntungan YCS".
     const prizes: Partial<SpinPrize>[] = [
-      // Hadiah besar: SENGAJA nonaktif. Bukan berpeluang kecil, tapi memang
-      // tidak masuk roda sampai admin menyalakannya untuk event khusus.
+      // Hadiah besar: TERKUNCI, bukan sekadar nonaktif. Tetap tampil di roda
+      // web kedua sebagai pemikat, tapi dijamin tak ada yang mendapatkannya
+      // lewat jalur mana pun. Buka kuncinya hanya untuk event khusus.
       {
         code: "sepeda_listrik",
         label: "Sepeda Listrik",
         weight: 0,
         active: false,
+        isLocked: true,
         sortOrder: 1,
       },
-      { code: "hp_baru", label: "HP Baru", weight: 0, active: false, sortOrder: 2 },
+      {
+        code: "hp_baru",
+        label: "HP Baru",
+        weight: 0,
+        active: false,
+        isLocked: true,
+        sortOrder: 2,
+      },
       {
         code: "vip_bali",
         label: "VIP Ticket Bali",
         weight: 0,
         active: false,
+        isLocked: true,
         sortOrder: 3,
       },
       {
@@ -995,6 +1084,7 @@ export class RewardsService implements OnModuleInit {
         label: "E-Money 1jt",
         weight: 0,
         active: false,
+        isLocked: true,
         sortOrder: 4,
       },
 

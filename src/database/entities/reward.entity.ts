@@ -167,6 +167,19 @@ export class SpinPrize {
   @Column({ type: "boolean", default: true })
   active!: boolean;
 
+  /**
+   * Kunci mutlak. Hadiah ini TIDAK PERNAH diberikan lewat jalur apa pun:
+   * undian acak, ambang otomatis, jaminan, maupun mode paksa.
+   *
+   * Berbeda dari `active: false` yang hanya mengeluarkannya dari undian acak.
+   * Jalur otomatis dan jaminan tidak memeriksa `active`, jadi hadiah utama
+   * yang sekadar dinonaktifkan masih bisa lolos bila ambangnya keisi. Kunci
+   * ini dipakai untuk grand prize: tetap tampil di roda web kedua sebagai
+   * pemikat, tapi dijamin tak ada yang mendapatkannya.
+   */
+  @Column({ name: "is_locked", type: "boolean", default: false })
+  isLocked!: boolean;
+
   @Column({ name: "sort_order", type: "int", default: 0 })
   sortOrder!: number;
 
