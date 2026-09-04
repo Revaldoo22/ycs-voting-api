@@ -394,25 +394,36 @@ terjadi tanpa perlu menang undian. Tumbler juga dibatasi **1 per akun**, jadi
 kalau peserta sudah punya (lewat jalur manapun) dan rodanya kebetulan mendarat
 di Tumbler lagi, hasilnya tetap 💨 supaya tidak dobel.
 
-**d. Hadiah besar mati secara default.** Sepeda Listrik, HP Baru, VIP Ticket
-Bali, dan E-Money bukan berpeluang kecil, tapi memang **tidak dimasukkan ke
-roda** sampai admin menyalakannya. Selama `active: false`, tidak ada satu pun
-peserta yang bisa mendapatkannya. Tetap boleh digambar di roda sebagai
-pemanis, tapi jangan menjanjikannya ke peserta.
+**d. Grand Prize mati secara default.** E-Money, Handphone, dan Sepeda Listrik
+bukan berpeluang kecil, tapi memang **tidak dimasukkan ke roda** sampai admin
+menyalakannya. Selama `active: false`, tidak ada satu pun peserta yang bisa
+mendapatkannya. Tetap boleh digambar di roda sebagai pemanis, tapi jangan
+menjanjikannya ke peserta.
+
+> Data hadiah masih memuat **VIP Ticket Bali** dari konfigurasi lama, juga
+> nonaktif. Kalau tidak lagi dipakai, minta panitia menghapusnya lewat admin
+> supaya isi `GET /rewards/prizes?all=1` sama dengan pengumuman ke peserta.
 
 **e. 💨 adalah hasil cadangan.** Muncul kalau peserta tidak dapat apa-apa,
 baik karena belum beruntung maupun karena jatah hadiahnya sudah habis.
 Jumlahnya tidak terbatas.
 
-Ringkasan jatah bawaan:
+### Ringkasan semua hadiah
 
 | Hadiah | Sifat | Cara didapat | Jatah |
 |--------|-------|--------------|-------|
-| 1 Kunci | pasti didapat | titik acak spin ke-1..5 | 41 orang, maks 1/akun |
-| Tumbler | acak / otomatis | undian roda, atau otomatis saat 100 poin / 10x spin | 8 orang, maks 1/akun |
-| Kaos Eksklusif | acak | undian roda | 6 orang, maks 1/akun |
-| Hadiah besar | mati default | hanya kalau admin menyalakan | diatur admin |
-| 💨 | cadangan | kalau tidak dapat hadiah lain | tak terbatas |
+| 💨 **Dash** | default / cadangan | muncul kalau tidak dapat hadiah lain | tidak terbatas |
+| 🔑 **Kunci** | pasti didapat | titik acak antara spin 1-5, per akun | 41 orang, maks 1/akun |
+| 🥤 **Tumbler Eksklusif** | acak / otomatis | 1:300 di roda, atau otomatis saat 100 poin / 10x spin | 8 orang, maks 1/akun |
+| 👕 **Kaos Eksklusif Toploker** | acak | 1:300 di roda | 6 orang, maks 1/akun |
+| 🏆 **Grand Prize** | mati secara default | hanya aktif kalau admin menyalakannya manual | diatur admin |
+
+**Isi Grand Prize:** E-Money, Handphone, Sepeda Listrik.
+
+> Angka di tabel ini adalah **nilai bawaan**, bukan janji permanen. Admin bisa
+> mengubah jatah, ambang otomatis, dan status aktif kapan saja, jadi baca
+> `GET /rewards/prizes` untuk nilai yang sedang berlaku. Tabel ini untuk
+> memahami cara mainnya, bukan untuk di-hardcode.
 
 ### 8.2 Katalog penukaran
 
@@ -811,7 +822,7 @@ curl -X POST $BASE/schools \
   di-hardcode. Pemenang spin ditentukan server, animasi roda hanya mengikuti.
 - **Spin bukan undian acak biasa** (bagian 8.1): Kunci pasti didapat di titik
   acak spin ke-1..5 dan dibatasi 41 orang, Tumbler bisa diberikan otomatis saat
-  100 poin / 10x spin, dan hadiah besar mati sampai admin menyalakannya. Harga
+  100 poin / 10x spin, dan Grand Prize mati sampai admin menyalakannya. Harga
   spin pertama tiap akun juga lebih murah, jadi tanyakan
   `/rewards/spin-price/{email}` sebelum menampilkan harga.
 - **Peserta yang sudah lolos / Golden Buzzer** (bagian 9): mereka berhenti
