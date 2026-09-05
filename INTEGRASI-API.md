@@ -557,7 +557,8 @@ pun, jadi jangan dijanjikan bisa didapat.
     "winner_quota": 8, "max_per_account": 1,
     "is_guaranteed": false, "guarantee_min_spin": 1, "guarantee_max_spin": 5,
     "auto_at_points": 100, "auto_at_spins": 10,
-    "color": null, "active": true, "is_locked": false, "sort_order": 6 }
+    "color": null, "image_url": "https://.../tumbler.webp",
+    "active": true, "is_locked": false, "sort_order": 6 }
 ]
 ```
 
@@ -572,6 +573,7 @@ pun, jadi jangan dijanjikan bisa didapat.
 | `key_grant` | kunci yang didapat kalau mendarat di sini |
 | `stock` | sisa barang; yang habis otomatis tidak keluar lagi |
 | `is_locked` | `true` = **dijamin tidak bisa didapat** siapa pun, lewat jalur apa pun |
+| `image_url` | gambar hadiah untuk digambar di roda. `null` = pakai `color` dan `label` saja |
 
 > **`chance` tidak berjumlah 100.** Angka ini hanya menggambarkan undian acak.
 > Hadiah berjaminan (`is_guaranteed: true`), hadiah terkunci, dan hadiah

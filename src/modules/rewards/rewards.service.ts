@@ -93,6 +93,9 @@ export class RewardsService implements OnModuleInit {
     await this.db.query(
       `alter table reward_redemptions add column if not exists batch_id uuid`,
     );
+    await this.db.query(
+      `alter table spin_prizes add column if not exists image_url text`,
+    );
     await this.db.query(`
       create table if not exists spin_targets (
         id uuid primary key default gen_random_uuid(),
@@ -431,6 +434,7 @@ export class RewardsService implements OnModuleInit {
       auto_at_points: p.autoAtPoints,
       auto_at_spins: p.autoAtSpins,
       color: p.color,
+      image_url: p.imageUrl,
       active: p.active,
       is_locked: p.isLocked,
       sort_order: p.sortOrder,

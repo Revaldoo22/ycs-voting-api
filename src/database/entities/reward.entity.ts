@@ -164,6 +164,13 @@ export class SpinPrize {
   @Column({ type: "text", nullable: true })
   color!: string | null;
 
+  /**
+   * Gambar hadiah untuk ditampilkan di roda web kedua. null = pakai warna
+   * dan label saja, seperti sebelumnya.
+   */
+  @Column({ name: "image_url", type: "text", nullable: true })
+  imageUrl!: string | null;
+
   @Column({ type: "boolean", default: true })
   active!: boolean;
 

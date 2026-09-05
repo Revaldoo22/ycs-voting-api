@@ -114,6 +114,8 @@ class PrizeDto {
   @IsOptional() @IsInt() @Min(0) auto_at_points?: number | null;
   @IsOptional() @IsInt() @Min(0) auto_at_spins?: number | null;
   @IsOptional() @IsString() @MaxLength(20) color?: string;
+  /** URL gambar hadiah, hasil POST /upload. Kosongkan untuk menghapus. */
+  @IsOptional() @IsString() @MaxLength(500) image_url?: string | null;
   @IsOptional() @IsBoolean() active?: boolean;
   /** Kunci mutlak: tak pernah keluar lewat jalur mana pun. Untuk grand prize. */
   @IsOptional() @IsBoolean() is_locked?: boolean;
@@ -214,6 +216,10 @@ function toPrizeEntity(d: PrizeDto | PrizePatchDto) {
     ...(d.auto_at_points !== undefined && { autoAtPoints: d.auto_at_points }),
     ...(d.auto_at_spins !== undefined && { autoAtSpins: d.auto_at_spins }),
     ...(d.color !== undefined && { color: d.color }),
+    ...(d.image_url !== undefined && {
+      // String kosong dari form berarti "hapus gambar", bukan URL kosong.
+      imageUrl: d.image_url?.trim() ? d.image_url.trim() : null,
+    }),
     ...(d.active !== undefined && { active: d.active }),
     ...(d.is_locked !== undefined && { isLocked: d.is_locked }),
     ...(d.sort_order !== undefined && { sortOrder: d.sort_order }),
