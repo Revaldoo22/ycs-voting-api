@@ -707,6 +707,24 @@ export class RewardsService implements OnModuleInit {
     return r[0]?.n ?? 0;
   }
 
+  /**
+   * Akun ini sudah pernah menerima BARANG apa pun dari roda?
+   *
+   * Dash dan Kunci tidak dihitung: yang pertama bukan hadiah, yang kedua
+   * alat tukar. Dipakai menegakkan aturan satu barang per akun seumur hidup.
+   */
+  private async ownedAnyPrize(email: string): Promise<boolean> {
+    const r = (await this.db.query(
+      `select 1 from spin_results sr
+        where lower(sr.email) = $1
+          and sr.is_empty = false
+          and sr.key_grant = 0
+        limit 1`,
+      [email],
+    )) as unknown[];
+    return r.length > 0;
+  }
+
   /** Berapa kali SATU akun sudah menerima hadiah ini. */
   private async ownedCount(email: string, code: string): Promise<number> {
     const r = (await this.db.query(
@@ -720,11 +738,27 @@ export class RewardsService implements OnModuleInit {
   /**
    * Apakah hadiah ini masih boleh diberikan ke akun tsb saat ini?
    * Mengecek stok keping, kuota jumlah penerima, dan batas per akun.
+   *
+   * Aturan utamanya: satu akun hanya boleh menerima SATU BARANG seumur
+   * hidup. Sudah dapat Tumbler berarti tidak bisa dapat Kaos juga, bukan
+   * sekadar tidak bisa Tumbler lagi.
+   *
+   * Dua pengecualian:
+   * - Dash, karena itu hasil "belum beruntung", bukan barang.
+   * - Kunci (key_grant > 0), karena itu alat tukar untuk menebus hadiah,
+   *   bukan barang yang dikirim ke peserta.
    */
   private async claimable(p: SpinPrize, email: string): Promise<boolean> {
     if (!this.available(p)) return false;
+
+    const isBarang = !p.isEmpty && p.keyGrant === 0;
+    if (isBarang && (await this.ownedAnyPrize(email))) return false;
+
+    // max_per_account tetap dihormati untuk yang bukan barang, mis. membatasi
+    // Kunci 1 per akun.
     if (p.maxPerAccount !== null) {
-      if ((await this.ownedCount(email, p.code)) >= p.maxPerAccount) return false;
+      if ((await this.ownedCount(email, p.code)) >= p.maxPerAccount)
+        return false;
     }
     if (p.winnerQuota !== null) {
       // Kuota dihitung per ORANG. Akun yang sudah pernah menang tidak

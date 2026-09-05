@@ -396,9 +396,16 @@ jadi peserta tidak bisa mendapatkannya lebih awal walau beruntung.
 Karena itu `chance` Tumbler hanya berlaku setelah ambangnya lewat. Jangan
 menampilkan peluangnya sebagai sesuatu yang berlaku sejak spin pertama.
 
-Tumbler juga dibatasi **1 per akun**, jadi kalau peserta sudah punya dan
-rodanya kebetulan mendarat di Tumbler lagi, hasilnya tetap 💨 supaya tidak
-dobel.
+**Satu akun hanya boleh menerima SATU BARANG seumur hidup.** Peserta yang
+sudah dapat Tumbler tidak bisa dapat Kaos juga, bukan sekadar tidak bisa
+Tumbler lagi. Begitu sudah punya satu barang, hasil spin berikutnya selalu
+💨 kecuali Kunci.
+
+Dua pengecualian: **💨** karena bukan barang, dan **Kunci** karena itu alat
+tukar untuk menebus hadiah, bukan barang yang dikirim ke peserta.
+
+> Ini penting untuk kalimat di UI. Jangan menulis "kumpulkan semua hadiah",
+> karena satu peserta memang hanya bisa membawa pulang satu barang.
 
 **d. Grand Prize terkunci.** E-Money, Handphone, dan Sepeda Listrik bukan
 berpeluang kecil, tapi **dikunci**: selama `is_locked: true`, tidak ada satu
