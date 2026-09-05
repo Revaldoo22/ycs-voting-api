@@ -429,3 +429,84 @@ export class SpinTarget {
   @CreateDateColumn({ name: "created_at", type: "timestamptz" })
   createdAt!: Date;
 }
+
+/** Status pengajuan klaim hadiah spin. */
+export type ClaimStatus = "pending" | "approved" | "rejected" | "sent";
+
+/**
+ * Pengajuan klaim hadiah spin oleh peserta.
+ *
+ * Dipisah dari `reward_redemptions` yang mencatat pemotongan poin: yang itu
+ * soal saldo, yang ini soal pengiriman barang. Data alamat dan kontak
+ * disalin saat pengajuan, bukan dibaca dari profil, supaya riwayat tetap
+ * benar walau peserta mengubah profilnya kemudian.
+ *
+ * Satu baris terikat ke satu `spin_results`, jadi peserta tidak bisa
+ * mengklaim hadiah yang tidak pernah dia menangkan.
+ */
+@Entity("prize_claims")
+@Index("prize_claim_email", ["email"])
+@Index("prize_claim_status", ["status"])
+@Index("prize_claim_spin", ["spinResultId"], { unique: true })
+export class PrizeClaim {
+  @PrimaryGeneratedColumn("uuid")
+  id!: string;
+
+  /** Hasil spin yang diklaim. Unik: satu hadiah satu pengajuan. */
+  @Column({ name: "spin_result_id", type: "uuid" })
+  spinResultId!: string;
+
+  @Column({ name: "profile_id", type: "uuid", nullable: true })
+  profileId!: string | null;
+
+  @Column({ type: "text" })
+  email!: string;
+
+  /** Disalin dari hasil spin supaya riwayat tetap terbaca. */
+  @Column({ name: "prize_code", type: "text" })
+  prizeCode!: string;
+
+  @Column({ name: "prize_label", type: "text" })
+  prizeLabel!: string;
+
+  // ---- Data pengiriman, diisi peserta saat mengajukan ----
+
+  @Column({ type: "text" })
+  name!: string;
+
+  @Column({ type: "text" })
+  school!: string;
+
+  /** Kabupaten/kota, ditulis bebas karena peserta bisa dari mana saja. */
+  @Column({ type: "text" })
+  region!: string;
+
+  /** Nomor WA aktif, ternormalkan (08xxx) supaya mudah dihubungi. */
+  @Column({ type: "text" })
+  contact!: string;
+
+  /** Alamat lengkap bila hadiah perlu dikirim. Opsional. */
+  @Column({ type: "text", nullable: true })
+  address!: string | null;
+
+  @Column({ type: "text", nullable: true })
+  note!: string | null;
+
+  // ---- Penanganan panitia ----
+
+  @Column({ type: "text", default: "pending" })
+  status!: ClaimStatus;
+
+  /** Alasan penolakan, atau catatan pengiriman. */
+  @Column({ name: "admin_note", type: "text", nullable: true })
+  adminNote!: string | null;
+
+  @Column({ name: "handled_by", type: "text", nullable: true })
+  handledBy!: string | null;
+
+  @Column({ name: "handled_at", type: "timestamptz", nullable: true })
+  handledAt!: Date | null;
+
+  @CreateDateColumn({ name: "created_at", type: "timestamptz" })
+  createdAt!: Date;
+}

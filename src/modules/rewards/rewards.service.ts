@@ -18,8 +18,10 @@ import {
   SpinPrize,
   SpinResult,
   type SpinSource,
+  type ClaimStatus,
   PointAdjustment,
   SpinTarget,
+  PrizeClaim,
 } from "../../database/entities";
 
 /** Saldo yang bisa dibelanjakan oleh satu akun. */
@@ -64,6 +66,8 @@ export class RewardsService implements OnModuleInit {
     private readonly adjustments: Repository<PointAdjustment>,
     @InjectRepository(SpinTarget)
     private readonly targets: Repository<SpinTarget>,
+    @InjectRepository(PrizeClaim)
+    private readonly claims: Repository<PrizeClaim>,
   ) {}
 
   /**
@@ -95,6 +99,39 @@ export class RewardsService implements OnModuleInit {
     );
     await this.db.query(
       `alter table spin_prizes add column if not exists image_url text`,
+    );
+    await this.db.query(`
+      create table if not exists prize_claims (
+        id uuid primary key default gen_random_uuid(),
+        spin_result_id uuid not null,
+        profile_id uuid,
+        email text not null,
+        prize_code text not null,
+        prize_label text not null,
+        name text not null,
+        school text not null,
+        region text not null,
+        contact text not null,
+        address text,
+        note text,
+        status text not null default 'pending',
+        admin_note text,
+        handled_by text,
+        handled_at timestamptz,
+        created_at timestamptz not null default now()
+      )
+    `);
+    await this.db.query(
+      `create index if not exists prize_claim_email on prize_claims (email)`,
+    );
+    await this.db.query(
+      `create index if not exists prize_claim_status on prize_claims (status)`,
+    );
+    // Unik: satu hadiah hanya boleh diajukan sekali, ditegakkan di database
+    // supaya dua permintaan berbarengan tidak bisa membuat pengajuan ganda.
+    await this.db.query(
+      `create unique index if not exists prize_claim_spin
+         on prize_claims (spin_result_id)`,
     );
     await this.db.query(`
       create table if not exists spin_targets (
@@ -844,6 +881,163 @@ export class RewardsService implements OnModuleInit {
     }[];
 
     return { ringkasan: tot, rows };
+  }
+
+  // ----------------------- Klaim hadiah spin -----------------------
+
+  /**
+   * Hadiah milik satu akun beserta status klaimnya.
+   *
+   * Dipakai web kedua menampilkan "hadiah saya": mana yang belum diajukan,
+   * mana yang sedang diproses. Dash tidak ikut karena bukan barang.
+   */
+  async myPrizes(emailRaw: string) {
+    const email = emailRaw.trim().toLowerCase();
+    if (!email) throw new BadRequestException("Email wajib diisi.");
+    return this.db.query(
+      `select sr.id as spin_result_id, sr.prize_code, sr.prize_label,
+              sr.created_at as won_at,
+              sp.image_url,
+              c.id as claim_id, c.status as claim_status,
+              c.admin_note, c.created_at as claimed_at
+         from spin_results sr
+         left join spin_prizes sp on sp.code = sr.prize_code
+         left join prize_claims c on c.spin_result_id = sr.id
+        where lower(sr.email) = $1
+          and sr.is_empty = false
+          -- Kunci tidak diklaim: itu alat tukar, bukan barang kiriman.
+          and sr.key_grant = 0
+        order by sr.created_at desc`,
+      [email],
+    );
+  }
+
+  /** Ajukan klaim satu hadiah. Peserta hanya bisa mengklaim miliknya. */
+  async createClaim(dto: {
+    email: string;
+    spin_result_id: string;
+    name: string;
+    school: string;
+    region: string;
+    contact: string;
+    address?: string | null;
+    note?: string | null;
+  }) {
+    const email = dto.email.trim().toLowerCase();
+    if (!email) throw new BadRequestException("Email wajib diisi.");
+
+    const rows = (await this.db.query(
+      `select id, email, prize_code, prize_label, profile_id, is_empty, key_grant
+         from spin_results where id = $1`,
+      [dto.spin_result_id],
+    )) as {
+      id: string;
+      email: string;
+      prize_code: string;
+      prize_label: string;
+      profile_id: string | null;
+      is_empty: boolean;
+      key_grant: number;
+    }[];
+    const spin = rows[0];
+    if (!spin) throw new NotFoundException("Hadiah tidak ditemukan.");
+
+    // Kepemilikan diperiksa di server: tanpa ini siapa pun yang tahu id-nya
+    // bisa mengklaim hadiah orang lain.
+    if (spin.email.toLowerCase() !== email) {
+      throw new BadRequestException("Hadiah ini bukan milik akun tersebut.");
+    }
+    if (spin.is_empty) {
+      throw new BadRequestException("Belum beruntung tidak bisa diklaim.");
+    }
+    if (spin.key_grant > 0) {
+      throw new BadRequestException(
+        "Kunci dipakai menukar hadiah, bukan barang yang dikirim.",
+      );
+    }
+
+    const sudah = await this.claims.findOneBy({ spinResultId: spin.id });
+    if (sudah) {
+      throw new ConflictException(
+        `Hadiah ini sudah diajukan (status: ${sudah.status}).`,
+      );
+    }
+
+    const contact = normalizePhone(dto.contact);
+    if (contact.length < 9) {
+      throw new BadRequestException("Nomor WA tidak valid.");
+    }
+
+    return this.claims.save(
+      this.claims.create({
+        spinResultId: spin.id,
+        profileId: spin.profile_id,
+        email,
+        prizeCode: spin.prize_code,
+        prizeLabel: spin.prize_label,
+        name: dto.name.trim(),
+        school: dto.school.trim(),
+        region: dto.region.trim(),
+        contact,
+        address: dto.address?.trim() || null,
+        note: dto.note?.trim() || null,
+      }),
+    );
+  }
+
+  /** Daftar pengajuan untuk panitia; `status` menyaring per tahap. */
+  async listClaims(filter?: { status?: string; email?: string }) {
+    const status = filter?.status?.trim() || null;
+    const email = filter?.email?.trim().toLowerCase() || null;
+    return this.db.query(
+      `select c.*, sp.image_url,
+              sr.created_at as won_at, sr.source as won_source
+         from prize_claims c
+         left join spin_prizes sp on sp.code = c.prize_code
+         left join spin_results sr on sr.id = c.spin_result_id
+        where ($1::text is null or c.status = $1)
+          and ($2::text is null or lower(c.email) = $2)
+        order by c.status <> 'pending', c.created_at desc
+        limit 300`,
+      [status, email],
+    );
+  }
+
+  /** Ringkasan jumlah pengajuan per status, untuk tab di panel admin. */
+  async claimCounts() {
+    const [row] = (await this.db.query(
+      `select
+         count(*) filter (where status = 'pending')::int as pending,
+         count(*) filter (where status = 'approved')::int as approved,
+         count(*) filter (where status = 'sent')::int as sent,
+         count(*) filter (where status = 'rejected')::int as rejected
+       from prize_claims`,
+    )) as Record<string, number>[];
+    return row;
+  }
+
+  /** Ubah status pengajuan. Alasan wajib saat menolak. */
+  async updateClaim(
+    id: string,
+    patch: { status: ClaimStatus; admin_note?: string | null },
+    handledBy?: string | null,
+  ) {
+    const item = await this.claims.findOneBy({ id });
+    if (!item) throw new NotFoundException("Pengajuan tidak ditemukan.");
+
+    if (patch.status === "rejected" && !patch.admin_note?.trim()) {
+      throw new BadRequestException(
+        "Isi alasan penolakan supaya peserta tahu penyebabnya.",
+      );
+    }
+
+    item.status = patch.status;
+    if (patch.admin_note !== undefined) {
+      item.adminNote = patch.admin_note?.trim() || null;
+    }
+    item.handledBy = handledBy ?? null;
+    item.handledAt = new Date();
+    return this.claims.save(item);
   }
 
   // --------------------- Penandaan hadiah per akun ---------------------

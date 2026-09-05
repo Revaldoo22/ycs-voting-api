@@ -16,6 +16,7 @@ import {
   IsInt,
   IsOptional,
   IsString,
+  IsUUID,
   MaxLength,
   Max,
   Min,
@@ -136,6 +137,26 @@ class SpinOptionsDto {
   @IsOptional() @IsBoolean() spin_bundle_enabled?: boolean;
   @IsOptional() @IsInt() @Min(1) spin_bundle_count?: number;
   @IsOptional() @IsInt() @Min(0) spin_bundle_bonus?: number;
+}
+
+class CreateClaimDto {
+  @IsString() @MaxLength(200) email!: string;
+  @IsUUID() spin_result_id!: string;
+  @IsString() @MinLength(2) @MaxLength(100) name!: string;
+  @IsString() @MinLength(2) @MaxLength(150) school!: string;
+  @IsString() @MinLength(2) @MaxLength(100) region!: string;
+  /** Nomor WA aktif; dinormalkan server jadi 08xxx. */
+  @IsString() @MinLength(8) @MaxLength(30) contact!: string;
+  @IsOptional() @IsString() @MaxLength(300) address?: string;
+  @IsOptional() @IsString() @MaxLength(300) note?: string;
+}
+
+class UpdateClaimDto {
+  @IsIn(["pending", "approved", "rejected", "sent"])
+  status!: "pending" | "approved" | "rejected" | "sent";
+
+  /** Wajib saat menolak, supaya peserta tahu penyebabnya. */
+  @IsOptional() @IsString() @MaxLength(300) admin_note?: string;
 }
 
 class SpinTargetDto {
@@ -275,6 +296,30 @@ export class RewardsAdminController {
   @Get("balance/:email")
   adminBalance(@Param("email") email: string) {
     return this.svc.getBalance(email);
+  }
+
+  // --- Klaim hadiah ---
+
+  /** Pengajuan klaim; `?status=` menyaring per tahap, `?email=` per akun. */
+  @Get("claims")
+  listClaims(@Query("status") status?: string, @Query("email") email?: string) {
+    return this.svc.listClaims({ status, email });
+  }
+
+  /** Jumlah pengajuan per status, untuk tab di panel. */
+  @Get("claims/counts")
+  claimCounts() {
+    return this.svc.claimCounts();
+  }
+
+  /** Setujui, tolak, atau tandai sudah dikirim. */
+  @Patch("claims/:id")
+  updateClaim(
+    @Param("id", ParseUUIDPipe) id: string,
+    @Body() dto: UpdateClaimDto,
+    @CurrentUser() user: JwtPayload,
+  ) {
+    return this.svc.updateClaim(id, dto, user?.name ?? user?.sub ?? null);
   }
 
   // --- Log spin ---
@@ -473,6 +518,21 @@ export class RewardsIntegrationController {
   @Post("spin")
   spin(@Body() dto: SpinDto) {
     return this.svc.spin(dto.email, dto.option ?? "single");
+  }
+
+  /**
+   * Hadiah milik satu akun beserta status klaimnya. Dipakai web kedua
+   * menampilkan "hadiah saya" dan tombol ajukan klaim.
+   */
+  @Get("my-prizes/:email")
+  myPrizes(@Param("email") email: string) {
+    return this.svc.myPrizes(email);
+  }
+
+  /** Ajukan klaim satu hadiah. */
+  @Post("claims")
+  createClaim(@Body() dto: CreateClaimDto) {
+    return this.svc.createClaim(dto);
   }
 
   /** Riwayat spin satu akun. */

@@ -722,6 +722,77 @@ curl -X POST $BASE/rewards/spin \
 
 ---
 
+### 8.9 Klaim hadiah
+
+Hadiah tidak otomatis dikirim. Peserta harus mengajukan klaim dulu supaya
+panitia punya data pengiriman, lalu panitia menyetujuinya.
+
+**GET** `/rewards/my-prizes/{email}`
+
+Hadiah milik satu akun beserta status klaimnya. Dipakai menampilkan halaman
+"Hadiah Saya" dan menentukan apakah tombol ajukan klaim perlu ditampilkan.
+
+```json
+[
+  { "spin_result_id": "8f1c...", "prize_code": "tumbler",
+    "prize_label": "Tumbler", "won_at": "2026-09-05T07:12:00Z",
+    "image_url": "https://.../tumbler.webp",
+    "claim_id": null, "claim_status": null,
+    "admin_note": null, "claimed_at": null }
+]
+```
+
+| Field | Keterangan |
+|-------|-----------|
+| `spin_result_id` | dipakai saat mengajukan klaim |
+| `claim_status` | `null` = belum diajukan; selain itu lihat tabel status di bawah |
+| `admin_note` | alasan penolakan, atau catatan pengiriman dari panitia |
+
+💨 dan Kunci **tidak muncul** di sini: yang pertama bukan barang, yang kedua
+alat tukar.
+
+**POST** `/rewards/claims`
+
+```json
+{
+  "email": "budi@sekolah.sch.id",
+  "spin_result_id": "8f1c...",
+  "name": "Budi Santoso",
+  "school": "SMKN 1 Semarang",
+  "region": "Kota Semarang",
+  "contact": "081234567890",
+  "address": "Jl. Mawar 10, RT 2 RW 3",
+  "note": "ukuran kaos L"
+}
+```
+
+`name`, `school`, `region`, dan `contact` wajib. `address` dan `note`
+opsional. Nomor dinormalkan server jadi `08xxx`, jadi `+62` juga diterima.
+
+Yang ditolak server:
+
+| Sebab | Pesan |
+|---|---|
+| Hadiah milik akun lain | "Hadiah ini bukan milik akun tersebut." |
+| Sudah pernah diajukan | "Hadiah ini sudah diajukan (status: ...)" |
+| Mencoba mengklaim 💨 | "Belum beruntung tidak bisa diklaim." |
+| Mencoba mengklaim Kunci | "Kunci dipakai menukar hadiah, bukan barang yang dikirim." |
+
+> Kepemilikan diperiksa di server, jadi tidak perlu kalian jaga sendiri.
+> Tapi tetap jangan menampilkan tombol klaim untuk hadiah orang lain.
+
+**Status klaim:**
+
+| Status | Arti bagi peserta |
+|---|---|
+| `pending` | menunggu diperiksa panitia |
+| `approved` | disetujui, hadiah disiapkan |
+| `sent` | sudah dikirim atau diserahkan |
+| `rejected` | ditolak, alasannya ada di `admin_note` |
+
+Klaim yang ditolak bisa dikembalikan panitia ke `pending` untuk diproses
+ulang, jadi jangan menganggap `rejected` sebagai akhir yang permanen.
+
 ## 9. Peserta yang Sudah Lolos / Golden Buzzer
 
 **GET** `/winners`
