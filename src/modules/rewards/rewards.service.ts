@@ -8,6 +8,7 @@ import {
 import { InjectRepository } from "@nestjs/typeorm";
 import { DataSource, EntityManager, Repository } from "typeorm";
 import { randomUUID } from "crypto";
+import { normalizePhone } from "../../common/utils/normalize";
 import {
   AppSettings,
   Profile,
@@ -18,6 +19,7 @@ import {
   SpinResult,
   type SpinSource,
   PointAdjustment,
+  SpinTarget,
 } from "../../database/entities";
 
 /** Saldo yang bisa dibelanjakan oleh satu akun. */
@@ -60,6 +62,8 @@ export class RewardsService implements OnModuleInit {
     private readonly accounts: Repository<SpinAccount>,
     @InjectRepository(PointAdjustment)
     private readonly adjustments: Repository<PointAdjustment>,
+    @InjectRepository(SpinTarget)
+    private readonly targets: Repository<SpinTarget>,
   ) {}
 
   /**
@@ -88,6 +92,26 @@ export class RewardsService implements OnModuleInit {
     );
     await this.db.query(
       `alter table reward_redemptions add column if not exists batch_id uuid`,
+    );
+    await this.db.query(`
+      create table if not exists spin_targets (
+        id uuid primary key default gen_random_uuid(),
+        email text,
+        phone text,
+        prize_code text not null,
+        at_spin int,
+        reason text not null,
+        created_by text,
+        used_at timestamptz,
+        used_by_email text,
+        created_at timestamptz not null default now()
+      )
+    `);
+    await this.db.query(
+      `create index if not exists spin_target_email on spin_targets (email)`,
+    );
+    await this.db.query(
+      `create index if not exists spin_target_phone on spin_targets (phone)`,
     );
   }
 
@@ -784,6 +808,100 @@ export class RewardsService implements OnModuleInit {
     return { ringkasan: tot, rows };
   }
 
+  // --------------------- Penandaan hadiah per akun ---------------------
+
+  /** Daftar penandaan; `?email=` / `?phone=` menyaring satu akun. */
+  async listTargets(filter?: { email?: string; phone?: string }) {
+    const email = filter?.email?.trim().toLowerCase() || null;
+    const phone = filter?.phone ? normalizePhone(filter.phone) : null;
+    return this.db.query(
+      `select t.*, sp.label as prize_label,
+              pr.name as account_name
+         from spin_targets t
+         left join spin_prizes sp on sp.code = t.prize_code
+         left join profiles pr
+                on lower(pr.email) = lower(t.email)
+                or pr.phone_number = t.phone
+        where ($1::text is null or lower(t.email) = $1)
+          and ($2::text is null or t.phone = $2)
+        order by t.used_at is not null, t.created_at desc
+        limit 200`,
+      [email, phone],
+    );
+  }
+
+  /**
+   * Tandai satu akun supaya mendapat hadiah tertentu.
+   *
+   * Email atau nomor WA, minimal salah satu. Hadiah terkunci ditolak di sini
+   * juga, bukan hanya diabaikan saat spin, supaya panitia langsung tahu.
+   */
+  async addTarget(dto: {
+    email?: string | null;
+    phone?: string | null;
+    prize_code: string;
+    at_spin?: number | null;
+    reason: string;
+    created_by?: string | null;
+  }) {
+    const email = dto.email?.trim().toLowerCase() || null;
+    const phone = dto.phone ? normalizePhone(dto.phone) : null;
+    if (!email && !phone) {
+      throw new BadRequestException("Isi email atau nomor WA akunnya.");
+    }
+    const code = dto.prize_code.trim().toLowerCase();
+    const prize = await this.prizes.findOneBy({ code });
+    if (!prize) throw new BadRequestException(`Hadiah "${code}" tidak ada.`);
+    if (prize.isLocked) {
+      throw new BadRequestException(
+        `"${prize.label}" terkunci. Buka kuncinya dulu bila memang mau diberikan.`,
+      );
+    }
+    if (dto.reason.trim().length < 3) {
+      throw new BadRequestException("Alasan minimal 3 karakter.");
+    }
+
+    // Peringatan dini: penandaan ke akun yang belum ada tidak akan pernah
+    // terpakai, dan itu lebih baik diketahui sekarang daripada saat acara.
+    const found = (await this.db.query(
+      `select 1 from profiles
+        where ($1::text is not null and lower(email) = $1)
+           or ($2::text is not null and phone_number = $2)
+        limit 1`,
+      [email, phone],
+    )) as unknown[];
+    if (found.length === 0) {
+      throw new BadRequestException(
+        "Akun dengan email/nomor itu belum ada. Periksa lagi datanya.",
+      );
+    }
+
+    const saved = await this.targets.save(
+      this.targets.create({
+        email,
+        phone,
+        prizeCode: code,
+        atSpin: dto.at_spin ?? null,
+        reason: dto.reason.trim(),
+        createdBy: dto.created_by ?? null,
+      }),
+    );
+    return saved;
+  }
+
+  /** Batalkan penandaan yang belum terpakai. */
+  async removeTarget(id: string) {
+    const item = await this.targets.findOneBy({ id });
+    if (!item) throw new NotFoundException("Penandaan tidak ditemukan.");
+    if (item.usedAt) {
+      throw new BadRequestException(
+        "Sudah terpakai, tidak bisa dibatalkan. Hadiahnya sudah diberikan ke akun itu.",
+      );
+    }
+    await this.targets.remove(item);
+    return { ok: true };
+  }
+
   /** Rekap jumlah hadiah yang sudah keluar, per hadiah. */
   async spinPrizeTally() {
     return this.db.query(
@@ -797,6 +915,71 @@ export class RewardsService implements OnModuleInit {
         group by sr.prize_code
         order by 3 desc`,
     );
+  }
+
+  /**
+   * Ambil hadiah yang sudah ditetapkan panitia untuk akun ini, kalau ada.
+   *
+   * Dicocokkan lewat email ATAU nomor WA: akun web kedua tidak selalu punya
+   * keduanya terisi, jadi panitia boleh menandai dengan salah satunya.
+   *
+   * `at_spin` null berarti "spin berikutnya, kapan pun". Kalau diisi, hanya
+   * berlaku tepat di spin ke-N.
+   *
+   * Penandaan terpakai dilakukan lewat UPDATE bersyarat `used_at is null`,
+   * jadi dua permintaan berbarengan tidak bisa menukarkan target yang sama
+   * dua kali: yang kalah balapan mendapat rowCount 0 dan dilewati.
+   */
+  private async claimTarget(
+    email: string,
+    phoneRaw: string | null,
+    spinNo: number,
+    profileId: string | null,
+    batchId: string,
+    isBonus: boolean,
+  ): Promise<SpinResult | null> {
+    const phone = phoneRaw ? normalizePhone(phoneRaw) : null;
+
+    const rows = (await this.db.query(
+      `update spin_targets t
+          set used_at = now(), used_by_email = $1
+        where t.id = (
+          select id from spin_targets
+           where used_at is null
+             and (
+               (email is not null and lower(email) = $1)
+               or ($2::text is not null and phone = $2)
+             )
+             and (at_spin is null or at_spin = $3)
+             -- Hadiah terkunci disaring DI SINI, bukan setelah baris
+             -- ditandai terpakai: hadiah bisa dikunci setelah targetnya
+             -- dibuat, dan target yang tak bisa diberikan jangan sampai
+             -- hangus percuma.
+             and exists (
+               select 1 from spin_prizes sp
+                where sp.code = spin_targets.prize_code
+                  and sp.is_locked = false
+             )
+           -- Yang menyebut spin tertentu didahulukan: kalau ada dua target,
+           -- yang khusus untuk spin ini lebih tepat dipakai daripada yang
+           -- berlaku kapan saja.
+           order by (at_spin is null), created_at
+           limit 1
+           for update skip locked
+        )
+        returning t.prize_code, t.reason`,
+      [email, phone, spinNo],
+    )) as unknown;
+    const recs = (Array.isArray((rows as unknown[])[0])
+      ? (rows as unknown[][])[0]
+      : (rows as unknown[])) as { prize_code: string }[];
+    const target = recs[0];
+    if (!target) return null;
+
+    const prize = await this.prizes.findOneBy({ code: target.prize_code });
+    if (!prize) return null;
+
+    return this.record(prize, email, profileId, batchId, isBonus, "targeted");
   }
 
   /** Simpan satu hasil spin + kurangi stok kepingnya. */
@@ -918,8 +1101,25 @@ export class RewardsService implements OnModuleInit {
       const isBonus = i >= paid;
       let given: SpinResult | null = null;
 
+      // 0. Hadiah yang sudah ditetapkan panitia untuk akun ini.
+      //
+      //    Didahulukan dari semua jalur lain karena ini keputusan manusia,
+      //    bukan hasil aturan. Sekali pakai: baris target ditandai terpakai
+      //    dalam transaksi yang sama supaya dua permintaan berbarengan tidak
+      //    mengambil target yang sama dua kali.
+      {
+        given = await this.claimTarget(
+          email,
+          profile?.phoneNumber ?? null,
+          spinNo,
+          profile?.id ?? null,
+          batchId,
+          isBonus,
+        );
+      }
+
       // 1. Titik jaminan kunci.
-      if (acc.keySpinTarget !== null && spinNo === acc.keySpinTarget) {
+      if (!given && acc.keySpinTarget !== null && spinNo === acc.keySpinTarget) {
         const keyPrize = all.find((p) => p.isGuaranteed);
         if (keyPrize && (await this.claimable(keyPrize, email))) {
           given = await this.record(

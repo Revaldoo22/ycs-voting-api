@@ -244,7 +244,12 @@ export class RewardRedemption {
 }
 
 /** Asal satu hasil spin. */
-export type SpinSource = "random" | "guaranteed" | "auto";
+export type SpinSource =
+  | "random"
+  | "guaranteed"
+  | "auto"
+  /** Ditetapkan panitia untuk akun tertentu, bukan hasil aturan. */
+  | "targeted";
 
 /**
  * Catatan satu putaran spin: apa yang didapat, dan berapa jatah/poin yang
@@ -359,6 +364,60 @@ export class PointAdjustment {
   /** Admin yang melakukan, disimpan sebagai teks agar riwayat tetap terbaca. */
   @Column({ name: "created_by", type: "text", nullable: true })
   createdBy!: string | null;
+
+  @CreateDateColumn({ name: "created_at", type: "timestamptz" })
+  createdAt!: Date;
+}
+
+/**
+ * Hadiah yang sudah ditentukan panitia untuk satu akun.
+ *
+ * Dipakai saat pemenang ditetapkan di luar sistem, mis. hadiah panggung atau
+ * kompensasi keluhan. Akun dicocokkan lewat email ATAU nomor WA, karena akun
+ * web kedua tidak selalu punya keduanya terisi.
+ *
+ * Berbeda dari bobot dan ambang yang berlaku untuk semua orang: ini hanya
+ * mengenai satu akun, sekali pakai, dan tercatat siapa yang menetapkan.
+ */
+@Entity("spin_targets")
+@Index("spin_target_email", ["email"])
+@Index("spin_target_phone", ["phone"])
+export class SpinTarget {
+  @PrimaryGeneratedColumn("uuid")
+  id!: string;
+
+  /** Salah satu dari email/phone wajib diisi; keduanya boleh sekaligus. */
+  @Column({ type: "text", nullable: true })
+  email!: string | null;
+
+  /** Nomor WA ternormalisasi (08xxx), supaya cocok walau ditulis +62. */
+  @Column({ type: "text", nullable: true })
+  phone!: string | null;
+
+  @Column({ name: "prize_code", type: "text" })
+  prizeCode!: string;
+
+  /**
+   * Diberikan pada spin ke-berapa akun itu. null = spin berikutnya, kapan pun
+   * dia memutar.
+   */
+  @Column({ name: "at_spin", type: "int", nullable: true })
+  atSpin!: number | null;
+
+  /** Alasan wajib, supaya penetapan pemenang bisa dipertanggungjawabkan. */
+  @Column({ type: "text" })
+  reason!: string;
+
+  @Column({ name: "created_by", type: "text", nullable: true })
+  createdBy!: string | null;
+
+  /** Terisi begitu hadiahnya benar-benar diberikan. Sekali pakai. */
+  @Column({ name: "used_at", type: "timestamptz", nullable: true })
+  usedAt!: Date | null;
+
+  /** Email akun yang benar-benar menerima, untuk penelusuran. */
+  @Column({ name: "used_by_email", type: "text", nullable: true })
+  usedByEmail!: string | null;
 
   @CreateDateColumn({ name: "created_at", type: "timestamptz" })
   createdAt!: Date;

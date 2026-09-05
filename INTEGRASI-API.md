@@ -660,16 +660,22 @@ jangan di-hardcode. Kalau paket dimatikan admin, `options` hanya berisi
 | Field | Keterangan |
 |-------|-----------|
 | `results` | satu baris per putaran, **urut**. Paket 5x+1 menghasilkan 6 baris. |
-| `source` | asal hadiah: `guaranteed` (titik Kunci), `auto` (ambang tercapai), `random` (menang undian) |
+| `source` | asal hadiah: `targeted` (ditetapkan panitia untuk akun itu), `guaranteed` (titik Kunci), `auto` (ambang tercapai), `random` (menang undian) |
 | `is_bonus` | `true` untuk putaran bonus (gratis, tidak menagih poin) |
 | `free_spins_used` | jatah gratis yang terpakai; **dipakai lebih dulu** sebelum poin |
 | `points_charged` | poin yang benar-benar ditagih, sudah termasuk diskon |
 | `first_spin_discount` | `true` kalau diskon spin pertama terpakai di panggilan ini |
 | `batch_id` | penanda satu sesi; semua baris dari satu panggilan punya nilai sama |
 
-> `source` berguna untuk memilih kalimat di UI. `guaranteed` dan `auto` bukan
-> hasil keberuntungan, jadi lebih pas ditulis "Kamu dapat Kunci!" daripada
-> "Selamat, kamu beruntung!".
+> `source` berguna untuk memilih kalimat di UI. `targeted`, `guaranteed`, dan
+> `auto` bukan hasil keberuntungan, jadi lebih pas ditulis "Kamu dapat Kunci!"
+> daripada "Selamat, kamu beruntung!".
+
+**f. Panitia bisa menetapkan hadiah untuk akun tertentu.** Dipakai saat
+pemenang sudah ditentukan di luar sistem, mis. hadiah panggung. Hasilnya
+datang lewat `POST /rewards/spin` seperti biasa dengan `source: "targeted"`,
+jadi web kedua tidak perlu menyiapkan apa pun. Hadiah terkunci tetap tidak
+bisa ditetapkan.
 
 > **Setiap panggilan tercatat di sisi kami** beserta poin yang ditagih dan
 > hadiah yang keluar, dan bisa dilihat panitia di menu Log Spin. Jadi kalau

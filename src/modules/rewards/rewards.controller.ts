@@ -136,6 +136,15 @@ class SpinOptionsDto {
   @IsOptional() @IsInt() @Min(0) spin_bundle_bonus?: number;
 }
 
+class SpinTargetDto {
+  @IsOptional() @IsString() @MaxLength(200) email?: string;
+  @IsOptional() @IsString() @MaxLength(30) phone?: string;
+  @IsString() @MinLength(2) @MaxLength(60) prize_code!: string;
+  /** Spin ke-berapa. Kosong = spin berikutnya, kapan pun. */
+  @IsOptional() @IsInt() @Min(1) at_spin?: number | null;
+  @IsString() @MinLength(3) @MaxLength(200) reason!: string;
+}
+
 class AdjustPointsDto {
   @IsString()
   @MaxLength(200)
@@ -286,6 +295,29 @@ export class RewardsAdminController {
   @Get("spin-tally")
   spinTally() {
     return this.svc.spinPrizeTally();
+  }
+
+  // --- Penandaan hadiah per akun ---
+
+  /** Daftar penandaan; `?email=` / `?phone=` untuk satu akun. */
+  @Get("spin-targets")
+  listTargets(@Query("email") email?: string, @Query("phone") phone?: string) {
+    return this.svc.listTargets({ email, phone });
+  }
+
+  /** Tandai satu akun supaya mendapat hadiah tertentu. */
+  @Post("spin-targets")
+  addTarget(@Body() dto: SpinTargetDto, @CurrentUser() user: JwtPayload) {
+    return this.svc.addTarget({
+      ...dto,
+      created_by: user?.name ?? user?.sub ?? null,
+    });
+  }
+
+  /** Batalkan penandaan yang belum terpakai. */
+  @Delete("spin-targets/:id")
+  removeTarget(@Param("id", ParseUUIDPipe) id: string) {
+    return this.svc.removeTarget(id);
   }
 
   // --- Penyesuaian poin manual ---

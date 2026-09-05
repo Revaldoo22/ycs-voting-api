@@ -40,6 +40,7 @@ export {
   SpinResult,
   SpinAccount,
   PointAdjustment,
+  SpinTarget,
   type RedeemKind,
   type SpinSource,
 } from "./reward.entity";
@@ -67,6 +68,7 @@ import {
   SpinResult,
   SpinAccount,
   PointAdjustment,
+  SpinTarget,
 } from "./reward.entity";
 
 /** Single registration point, add new entities here once. */
@@ -95,4 +97,5 @@ export const ENTITIES = [
   SpinResult,
   SpinAccount,
   PointAdjustment,
+  SpinTarget,
 ];
