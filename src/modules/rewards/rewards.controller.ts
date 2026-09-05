@@ -262,6 +262,32 @@ export class RewardsAdminController {
     return this.svc.getBalance(email);
   }
 
+  // --- Log spin ---
+
+  /**
+   * Riwayat permintaan spin dari web kedua: siapa, bayar berapa poin, dan
+   * dapat hadiah apa saja. Satu baris = satu permintaan, bukan satu hadiah,
+   * karena paket 5x+1 hanya sekali ditagih.
+   */
+  @Get("spin-log")
+  spinLog(
+    @Query("email") email?: string,
+    @Query("limit") limit?: string,
+    @Query("offset") offset?: string,
+  ) {
+    return this.svc.spinLog({
+      email,
+      limit: limit ? Number(limit) : undefined,
+      offset: offset ? Number(offset) : undefined,
+    });
+  }
+
+  /** Rekap berapa kali tiap hadiah sudah keluar dan ke berapa orang. */
+  @Get("spin-tally")
+  spinTally() {
+    return this.svc.spinPrizeTally();
+  }
+
   // --- Penyesuaian poin manual ---
 
   /** Riwayat penyesuaian; `?email=` untuk satu akun. */

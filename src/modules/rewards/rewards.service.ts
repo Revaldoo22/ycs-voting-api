@@ -86,6 +86,9 @@ export class RewardsService implements OnModuleInit {
       `alter table spin_prizes
          add column if not exists is_locked boolean not null default false`,
     );
+    await this.db.query(
+      `alter table reward_redemptions add column if not exists batch_id uuid`,
+    );
   }
 
   // ----------------------------- Setelan -----------------------------
@@ -709,6 +712,93 @@ export class RewardsService implements OnModuleInit {
     return true;
   }
 
+  /**
+   * Log spin: satu baris per PERMINTAAN dari web kedua, bukan per hadiah.
+   *
+   * Satu permintaan paket 5x+1 menghasilkan 6 hadiah tapi hanya satu tagihan
+   * poin, jadi dikelompokkan per batch_id supaya "berapa yang dibayar" dan
+   * "dapat apa saja" terbaca dalam satu baris.
+   *
+   * Poin yang ditagih diambil dari redemptions (kode spin_paid) karena di
+   * situlah pemotongan poin dicatat.
+   */
+  async spinLog(opts: {
+    email?: string;
+    limit?: number;
+    offset?: number;
+  } = {}) {
+    const email = opts.email?.trim().toLowerCase() || null;
+    const limit = Math.min(Math.max(opts.limit ?? 50, 1), 200);
+    const offset = Math.max(opts.offset ?? 0, 0);
+
+    const rows = (await this.db.query(
+      `select
+         sr.batch_id,
+         min(sr.email) as email,
+         min(pr.name) as name,
+         min(sr.created_at) as created_at,
+         count(*)::int as total_spin,
+         count(*) filter (where sr.is_bonus)::int as bonus_spin,
+         count(*) filter (where not sr.is_empty)::int as dapat_hadiah,
+         coalesce(
+           (select r.point_cost from reward_redemptions r
+             where r.batch_id = sr.batch_id
+               and r.reward_code = 'spin_paid'
+             limit 1), 0)::int as poin_ditagih,
+         json_agg(
+           json_build_object(
+             'prize_label', sr.prize_label,
+             'prize_code', sr.prize_code,
+             'is_empty', sr.is_empty,
+             'is_bonus', sr.is_bonus,
+             'source', sr.source
+           ) order by sr.created_at
+         ) as hasil
+       from spin_results sr
+       left join profiles pr on pr.id = sr.profile_id
+       where ($1::text is null or lower(sr.email) = $1)
+       -- coalesce ke id baris: data lama sebelum batch_id ada bernilai null,
+       -- dan tanpa ini semuanya tergabung jadi satu baris raksasa.
+       group by coalesce(sr.batch_id, sr.id), sr.batch_id
+       order by min(sr.created_at) desc
+       limit $2 offset $3`,
+      [email, limit, offset],
+    )) as unknown[];
+
+    const [tot] = (await this.db.query(
+      `select
+         count(distinct batch_id)::int as total_permintaan,
+         count(*)::int as total_spin,
+         count(*) filter (where not is_empty)::int as total_hadiah,
+         count(distinct email)::int as total_akun
+       from spin_results
+       where ($1::text is null or lower(email) = $1)`,
+      [email],
+    )) as {
+      total_permintaan: number;
+      total_spin: number;
+      total_hadiah: number;
+      total_akun: number;
+    }[];
+
+    return { ringkasan: tot, rows };
+  }
+
+  /** Rekap jumlah hadiah yang sudah keluar, per hadiah. */
+  async spinPrizeTally() {
+    return this.db.query(
+      `select sr.prize_code, min(sr.prize_label) as prize_label,
+              count(*)::int as keluar,
+              count(distinct sr.email)::int as penerima,
+              min(sr.created_at) as pertama,
+              max(sr.created_at) as terakhir
+         from spin_results sr
+        where sr.is_empty = false
+        group by sr.prize_code
+        order by 3 desc`,
+    );
+  }
+
   /** Simpan satu hasil spin + kurangi stok kepingnya. */
   private async record(
     prize: SpinPrize,
@@ -930,6 +1020,7 @@ export class RewardsService implements OnModuleInit {
           keyCost: 0,
           spinGrant: 0,
           status: "done",
+          batchId,
         }),
       );
     }

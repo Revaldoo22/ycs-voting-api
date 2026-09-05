@@ -231,6 +231,14 @@ export class RewardRedemption {
   @Column({ type: "text", nullable: true })
   note!: string | null;
 
+  /**
+   * Batch spin yang menyebabkan pemotongan ini, untuk penukaran ber-kode
+   * `spin_paid`. Dipakai log spin menautkan "poin ditagih" ke hasil
+   * hadiahnya secara pasti, bukan menebak lewat kedekatan waktu.
+   */
+  @Column({ name: "batch_id", type: "uuid", nullable: true })
+  batchId!: string | null;
+
   @CreateDateColumn({ name: "created_at", type: "timestamptz" })
   createdAt!: Date;
 }

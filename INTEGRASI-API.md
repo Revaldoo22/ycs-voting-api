@@ -671,6 +671,12 @@ jangan di-hardcode. Kalau paket dimatikan admin, `options` hanya berisi
 > hasil keberuntungan, jadi lebih pas ditulis "Kamu dapat Kunci!" daripada
 > "Selamat, kamu beruntung!".
 
+> **Setiap panggilan tercatat di sisi kami** beserta poin yang ditagih dan
+> hadiah yang keluar, dan bisa dilihat panitia di menu Log Spin. Jadi kalau
+> ada peserta protes "sudah bayar poin tapi tidak dapat apa-apa", panitia
+> bisa menelusurinya sendiri tanpa meminta log dari kalian. Kirim `email`
+> yang benar supaya baris lognya bisa ditautkan ke orangnya.
+
 Poin kurang menghasilkan `400` dengan pesan jumlah yang dibutuhkan. Belum ada
 hadiah aktif juga `400`.
 
