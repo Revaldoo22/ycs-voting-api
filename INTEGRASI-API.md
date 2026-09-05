@@ -732,6 +732,12 @@ curl $BASE/rewards/my-prizes/budi@sekolah.sch.id -H "X-Api-Key: $KEY"
 curl -X POST $BASE/rewards/claims \
   -H "X-Api-Key: $KEY" -H "Content-Type: application/json" \
   -d '{"email":"budi@sekolah.sch.id","spin_result_id":"8f1c...","name":"Budi Santoso","school":"SMKN 1 Semarang","region":"Kota Semarang","contact":"081234567890"}'
+
+# Semua pengajuan milik satu akun
+curl $BASE/rewards/claims/budi@sekolah.sch.id -H "X-Api-Key: $KEY"
+
+# Detail satu pengajuan (email wajib, milik pemiliknya)
+curl "$BASE/rewards/claim/c7a2...?email=budi@sekolah.sch.id" -H "X-Api-Key: $KEY"
 ```
 
 ### 8.9 Klaim hadiah
@@ -781,6 +787,32 @@ alat tukar.
 `name`, `school`, `region`, dan `contact` wajib. `address` dan `note`
 opsional. Nomor dinormalkan server jadi `08xxx`, jadi `+62` juga diterima.
 
+Responnya adalah **bukti pengajuan lengkap**, jadi kalian bisa langsung
+menampilkan kartu konfirmasi tanpa memanggil endpoint lain:
+
+```json
+{
+  "id": "c7a2...",
+  "spin_result_id": "8f1c...",
+  "email": "budi@sekolah.sch.id",
+  "prize_code": "tumbler",
+  "prize_label": "Tumbler",
+  "image_url": "https://.../tumbler.webp",
+  "name": "Budi Santoso",
+  "school": "SMKN 1 Semarang",
+  "region": "Kota Semarang",
+  "contact": "081234567890",
+  "address": "Jl. Mawar 10, RT 2 RW 3",
+  "note": "ukuran kaos L",
+  "status": "pending",
+  "admin_note": null,
+  "handled_at": null,
+  "created_at": "2026-09-05T09:30:00.000Z",
+  "won_at": "2026-09-05T07:12:00.000Z",
+  "won_source": "auto"
+}
+```
+
 Yang ditolak server:
 
 | Sebab | Pesan |
@@ -808,6 +840,35 @@ ulang, jadi jangan menganggap `rejected` sebagai akhir yang permanen.
 > Peserta hanya bisa mengajukan hadiah miliknya sendiri, dan satu hadiah hanya
 > menerima satu pengajuan. Dua-duanya ditegakkan server, jadi kalaupun ada yang
 > memanggil endpoint ini langsung, dia tidak bisa mengklaim hadiah orang lain.
+
+**GET** `/rewards/claims/{email}`
+
+Semua pengajuan milik satu akun, terbaru dulu. Isinya sama seperti respon
+`POST /claims` di atas (termasuk `image_url` dan data pengiriman), jadi cocok
+untuk halaman "Pengajuan Saya".
+
+**GET** `/rewards/claim/{id}?email={email}`
+
+Detail satu pengajuan, untuk memantau statusnya. `email` **wajib** diisi email
+pemilik pengajuan.
+
+> `email` bukan formalitas: tanpa itu, id pengajuan yang bocor bisa dipakai
+> siapa saja untuk melihat nama, sekolah, alamat, dan nomor WA orang lain.
+> Pengajuan milik akun lain dijawab `404`, sama seperti id yang tidak ada,
+> supaya keberadaannya pun tidak bisa ditebak.
+
+### Alur lengkap di web kedua
+
+```
+1. GET  /rewards/my-prizes/{email}    -> hadiah apa saja yang dimenangkan
+2. Yang claim_status-nya null         -> tampilkan tombol "Ajukan Klaim"
+3. POST /rewards/claims               -> kirim nama, sekolah, daerah, kontak
+4. GET  /rewards/claims/{email}       -> halaman "Pengajuan Saya"
+5. GET  /rewards/claim/{id}?email=... -> pantau status satu pengajuan
+```
+
+Panitia memproses di panel admin kami, jadi kalian tidak perlu menyediakan
+apa pun untuk itu. Statusnya cukup dibaca berkala dari langkah 4 atau 5.
 
 ---
 
@@ -964,8 +1025,11 @@ curl -X POST $BASE/schools \
   `/rewards/spin-price/{email}` sebelum menampilkan harga.
 - **Klaim hadiah** (bagian 8.9): hadiah tidak otomatis dikirim. Peserta
   mengajukan lewat `POST /rewards/claims` dengan nama, sekolah, daerah, dan
-  kontak, lalu panitia memprosesnya. Pakai `GET /rewards/my-prizes/{email}`
-  untuk tahu mana yang belum diajukan.
+  kontak, lalu panitia memprosesnya di panel admin kami. Pakai
+  `GET /rewards/my-prizes/{email}` untuk tahu mana yang belum diajukan,
+  `GET /rewards/claims/{email}` untuk halaman "Pengajuan Saya". Detail satu
+  pengajuan (`GET /rewards/claim/{id}`) **wajib menyertakan `?email=`**
+  pemiliknya, karena isinya memuat alamat dan nomor WA.
 - **Peserta yang sudah lolos / Golden Buzzer** (bagian 9): mereka berhenti
   menerima vote, jadi matikan tombol dukung untuk peserta yang muncul di
   `GET /winners`. Kolom `via` memberi tahu jalurnya, dan Golden Buzzer selalu

@@ -968,7 +968,7 @@ export class RewardsService implements OnModuleInit {
       throw new BadRequestException("Nomor WA tidak valid.");
     }
 
-    return this.claims.save(
+    const saved = await this.claims.save(
       this.claims.create({
         spinResultId: spin.id,
         profileId: spin.profile_id,
@@ -982,6 +982,57 @@ export class RewardsService implements OnModuleInit {
         address: dto.address?.trim() || null,
         note: dto.note?.trim() || null,
       }),
+    );
+
+    // Bentuk lengkap, bukan entity mentah: web kedua langsung bisa menampilkan
+    // kartu bukti pengajuan berikut gambar hadiahnya tanpa memanggil ulang.
+    return this.getClaim(saved.id);
+  }
+
+  /**
+   * Detail satu pengajuan berikut data hadiahnya.
+   *
+   * Dipakai web kedua menampilkan bukti pengajuan dan memantau statusnya.
+   * `email` diisi kalau pemanggilnya peserta: pengajuan milik akun lain
+   * ditolak, supaya id yang bocor tidak bisa dipakai mengintip data orang.
+   */
+  async getClaim(id: string, email?: string) {
+    const rows = (await this.db.query(
+      `select c.id, c.spin_result_id, c.email,
+              c.prize_code, c.prize_label, sp.image_url,
+              c.name, c.school, c.region, c.contact, c.address, c.note,
+              c.status, c.admin_note, c.handled_at, c.created_at,
+              sr.created_at as won_at, sr.source as won_source
+         from prize_claims c
+         left join spin_prizes sp on sp.code = c.prize_code
+         left join spin_results sr on sr.id = c.spin_result_id
+        where c.id = $1`,
+      [id],
+    )) as { email: string }[];
+    const row = rows[0];
+    if (!row) throw new NotFoundException("Pengajuan tidak ditemukan.");
+    if (email && row.email.toLowerCase() !== email.trim().toLowerCase()) {
+      throw new NotFoundException("Pengajuan tidak ditemukan.");
+    }
+    return row;
+  }
+
+  /** Semua pengajuan milik satu akun, terbaru dulu. */
+  async myClaims(emailRaw: string) {
+    const email = emailRaw.trim().toLowerCase();
+    if (!email) throw new BadRequestException("Email wajib diisi.");
+    return this.db.query(
+      `select c.id, c.spin_result_id,
+              c.prize_code, c.prize_label, sp.image_url,
+              c.name, c.school, c.region, c.contact, c.address, c.note,
+              c.status, c.admin_note, c.handled_at, c.created_at,
+              sr.created_at as won_at
+         from prize_claims c
+         left join spin_prizes sp on sp.code = c.prize_code
+         left join spin_results sr on sr.id = c.spin_result_id
+        where lower(c.email) = $1
+        order by c.created_at desc`,
+      [email],
     );
   }
 

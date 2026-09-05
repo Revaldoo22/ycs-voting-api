@@ -535,6 +535,24 @@ export class RewardsIntegrationController {
     return this.svc.createClaim(dto);
   }
 
+  /** Semua pengajuan milik satu akun, terbaru dulu. */
+  @Get("claims/:email")
+  myClaims(@Param("email") email: string) {
+    return this.svc.myClaims(email);
+  }
+
+  /**
+   * Detail satu pengajuan. `?email=` wajib diisi email pemiliknya: tanpa itu
+   * id yang bocor bisa dipakai mengintip data pengiriman orang lain.
+   */
+  @Get("claim/:id")
+  claimDetail(
+    @Param("id", ParseUUIDPipe) id: string,
+    @Query("email") email: string,
+  ) {
+    return this.svc.getClaim(id, email);
+  }
+
   /** Riwayat spin satu akun. */
   @Get("spins/:email")
   spins(@Param("email") email: string, @Query("limit") limit?: string) {
