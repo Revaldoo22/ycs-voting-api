@@ -51,8 +51,13 @@ export class DepotService {
       body: JSON.stringify({ name, mime, size: buffer.length }),
     });
     if (!presignRes.ok) {
+      // Isi balasan ikut dibawa: tanpa ini panitia hanya melihat "Internal
+      // server error" dan tak ada cara tahu apakah masalahnya mime yang
+      // ditolak, kuota habis, atau kredensial.
+      const detail = await presignRes.text().catch(() => "");
       throw new InternalServerErrorException(
-        `Depot presign gagal (${presignRes.status}).`,
+        `Depot presign gagal (${presignRes.status})` +
+          (detail ? `: ${detail.slice(0, 300)}` : "."),
       );
     }
     const { fileId, uploadUrl } = (await presignRes.json()) as {
@@ -67,8 +72,10 @@ export class DepotService {
       body: new Uint8Array(buffer),
     });
     if (!putRes.ok) {
+      const detail = await putRes.text().catch(() => "");
       throw new InternalServerErrorException(
-        `Upload ke storage gagal (${putRes.status}).`,
+        `Upload ke storage gagal (${putRes.status})` +
+          (detail ? `: ${detail.slice(0, 300)}` : "."),
       );
     }
 
@@ -76,8 +83,10 @@ export class DepotService {
       method: "POST",
     });
     if (!completeRes.ok) {
+      const detail = await completeRes.text().catch(() => "");
       throw new InternalServerErrorException(
-        `Depot complete gagal (${completeRes.status}).`,
+        `Depot complete gagal (${completeRes.status})` +
+          (detail ? `: ${detail.slice(0, 300)}` : "."),
       );
     }
     return { fileId: String(fileId) };
