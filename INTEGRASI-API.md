@@ -388,11 +388,17 @@ Kunci dibatasi **41 orang** dan **1 per akun**. Kalau seorang peserta sampai
 di titiknya tapi jatah 41 orang sudah habis, dia **tidak** dapat Kunci dan
 hasilnya jadi 💨 biasa.
 
-**c. Sebagian hadiah diberikan otomatis.** Tumbler diberikan begitu akun
-mencapai **100 poin ATAU sudah spin 10 kali**, mana yang lebih dulu. Ini
-terjadi tanpa perlu menang undian. Tumbler juga dibatasi **1 per akun**, jadi
-kalau peserta sudah punya (lewat jalur manapun) dan rodanya kebetulan mendarat
-di Tumbler lagi, hasilnya tetap 💨 supaya tidak dobel.
+**c. Sebagian hadiah punya ambang, dan ambang itu MENAHAN.** Tumbler diberikan
+begitu akun mencapai **100 poin ATAU sudah spin 10 kali**, mana yang lebih
+dulu. Sebelum ambang itu tercapai, Tumbler **tidak ikut diundi sama sekali**,
+jadi peserta tidak bisa mendapatkannya lebih awal walau beruntung.
+
+Karena itu `chance` Tumbler hanya berlaku setelah ambangnya lewat. Jangan
+menampilkan peluangnya sebagai sesuatu yang berlaku sejak spin pertama.
+
+Tumbler juga dibatasi **1 per akun**, jadi kalau peserta sudah punya dan
+rodanya kebetulan mendarat di Tumbler lagi, hasilnya tetap 💨 supaya tidak
+dobel.
 
 **d. Grand Prize terkunci.** E-Money, Handphone, dan Sepeda Listrik bukan
 berpeluang kecil, tapi **dikunci**: selama `is_locked: true`, tidak ada satu
@@ -404,24 +410,6 @@ pemanis, tapi jangan menjanjikannya ke peserta.
 > undian acak, sedangkan jalur otomatis dan jaminan tidak melihat `active`.
 > Kunci menutup semuanya, jadi itulah penanda yang harus dipercaya.
 
-**d2. Mode hadiah pasti.** Panitia bisa menetapkan satu hadiah yang selalu
-keluar tiap spin, dengan ambang jumlah spin. Contoh: "Tumbler, mulai spin
-ke-10" berarti spin 1 sampai 9 hasilnya 💨 dan spin ke-10 pasti Tumbler.
-
-Setelan yang sedang berlaku ada di `GET /rewards/spin-options`:
-
-| Field | Arti |
-|---|---|
-| `spin_forced_prize_code` | Kode hadiah yang selalu keluar. `null` = roda acak normal. |
-| `spin_forced_min_spins` | Hadiah itu baru keluar mulai spin ke-N. `null`/`0` = sejak spin pertama. |
-
-> **Web kedua tidak perlu memakai dua field ini untuk menentukan hadiah.**
-> Hasil tetap datang dari `POST /rewards/spin`. Keduanya hanya untuk
-> keperluan tampilan, mis. menulis "kumpulkan 10 spin untuk Tumbler".
-
-Jatah penerima dan batas per akun tetap berlaku di mode ini. Kalau jatah
-hadiah pasti sudah habis untuk akun tersebut, hasilnya 💨, bukan menembus
-jatah.
 
 > Data hadiah masih memuat **VIP Ticket Bali** dari konfigurasi lama, juga
 > terkunci. Kalau tidak lagi dipakai, minta panitia menghapusnya lewat admin
@@ -572,7 +560,7 @@ pun, jadi jangan dijanjikan bisa didapat.
 | `is_guaranteed` | `true` = hadiah pasti (Kunci), tidak lewat undian |
 | `winner_quota` | batas jumlah **orang** yang boleh menang, bukan jumlah barang |
 | `max_per_account` | maksimal berapa kali satu akun boleh dapat hadiah ini |
-| `auto_at_points` / `auto_at_spins` | ambang pemberian otomatis. `null` = tidak ada. |
+| `auto_at_points` / `auto_at_spins` | ambang. Sebelum tercapai hadiah **tidak ikut diundi**; begitu tercapai, langsung diberikan. `null` = tidak ada ambang. |
 | `is_empty` | `true` untuk 💨 - tampilkan "belum beruntung" |
 | `key_grant` | kunci yang didapat kalau mendarat di sini |
 | `stock` | sisa barang; yang habis otomatis tidak keluar lagi |
@@ -620,8 +608,6 @@ sebelum menampilkan tombol spin.
   "spin_enabled": true,
   "spin_point_cost": 10,
   "spin_first_cost": 3,
-  "spin_forced_prize_code": "tumbler",
-  "spin_forced_min_spins": 10,
   "options": [
     { "code": "single", "label": "1x Spin", "spins": 1, "bonus": 0, "point_cost": 10 },
     { "code": "bundle", "label": "5x Spin + 1 Bonus", "spins": 5, "bonus": 1, "point_cost": 50 }
@@ -637,9 +623,6 @@ jangan di-hardcode. Kalau paket dimatikan admin, `options` hanya berisi
 > pesan spin sedang ditutup. Kalau tetap dipanggil, `POST /rewards/spin`
 > menolak dengan pesan "Roda spin sedang ditutup panitia." Panitia memakai ini
 > saat hadiah belum siap.
-
-> `spin_forced_prize_code` dan `spin_forced_min_spins`: lihat 8.1 huruf d2.
-> Hanya untuk tampilan, hasil hadiah tetap dari `POST /rewards/spin`.
 
 > `point_cost` pada paket **belum memperhitungkan diskon spin pertama**: paket
 > selalu dihitung dengan harga normal. Diskon hanya berlaku untuk spin satuan.

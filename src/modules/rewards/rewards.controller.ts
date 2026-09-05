@@ -134,15 +134,6 @@ class SpinOptionsDto {
   @IsOptional() @IsBoolean() spin_bundle_enabled?: boolean;
   @IsOptional() @IsInt() @Min(1) spin_bundle_count?: number;
   @IsOptional() @IsInt() @Min(0) spin_bundle_bonus?: number;
-
-  /**
-   * Kode hadiah yang selalu keluar tiap spin. Kirim null / string kosong
-   * untuk kembali ke roda acak biasa.
-   */
-  @IsOptional() @IsString() @MaxLength(60) spin_forced_prize_code?: string | null;
-
-  /** Tahan hadiah paksa sampai akun mencapai jumlah spin ini. */
-  @IsOptional() @IsInt() @Min(0) spin_forced_min_spins?: number | null;
 }
 
 class AdjustPointsDto {

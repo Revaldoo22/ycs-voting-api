@@ -50,27 +50,6 @@ export class AppSettings {
   @Column({ name: "spin_bundle_bonus", type: "int", default: 1 })
   spinBundleBonus!: number;
 
-  /**
-   * Mode paksa: kode hadiah yang SELALU keluar untuk setiap spin, melewati
-   * undian acak. null = roda berjalan normal sesuai bobot.
-   *
-   * Dipakai saat panitia ingin hasilnya pasti, mis. semua peserta dapat
-   * Tumbler. Batas jatah dan maksimal per akun tetap dihormati: kalau hadiah
-   * paksa sudah tak bisa diklaim akun itu, hasilnya jatuh ke Dash, bukan
-   * menembus kuota. Hadiah terkunci tidak bisa dijadikan hadiah paksa.
-   */
-  @Column({ name: "spin_forced_prize_code", type: "text", nullable: true })
-  spinForcedPrizeCode!: string | null;
-
-  /**
-   * Tahan hadiah paksa sampai akun mencapai jumlah spin ini. Di bawah ambang
-   * hasilnya Dash. null / 0 = langsung berlaku dari spin pertama.
-   *
-   * Dipakai untuk "Tumbler baru muncul setelah 10 kali spin".
-   */
-  @Column({ name: "spin_forced_min_spins", type: "int", nullable: true })
-  spinForcedMinSpins!: number | null;
-
   @UpdateDateColumn({ name: "updated_at", type: "timestamptz" })
   updatedAt!: Date;
 }
