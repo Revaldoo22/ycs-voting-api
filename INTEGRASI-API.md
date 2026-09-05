@@ -11,11 +11,12 @@ perlu menyimpan ID apa pun dari sini.
 > Google dengan email sama seperti peserta, dia otomatis ditandai **"Peserta"**
 > dan **tidak bisa vote dirinya sendiri**.
 
-> **Cukup pakai 2 endpoint utama:** (1) Sync Peserta dan (2) Sync Konten —
-> keduanya by `email`. Untuk web app kedua: tambah (7) Data Voter per Peserta
-> dan (8) Tukar Poin & Spin Hadiah. Butuh daftar peserta yang sudah lolos atau
-> Golden Buzzer: (9) Peserta yang Sudah Lolos. Endpoint di bagian *Legacy*
-> hanya untuk kompatibilitas.
+> **Cukup pakai 2 endpoint utama:** (1) Sync Peserta dan (2) Sync Konten,
+> keduanya by `email`. Untuk web app kedua: tambah (7) Data Voter per Peserta,
+> (8) Tukar Poin & Spin Hadiah, dan (8.9) Klaim Hadiah kalau kalian menyediakan
+> halaman pengajuan. Butuh daftar peserta yang sudah lolos atau Golden Buzzer:
+> (9) Peserta yang Sudah Lolos. Endpoint di bagian *Legacy* hanya untuk
+> kompatibilitas.
 
 ## Auth (wajib tiap request)
 
@@ -367,8 +368,9 @@ berarti butuh dua-duanya. Kunci hanya didapat dari spin.
 
 ### 8.1 Aturan main spin (WAJIB dibaca sebelum bikin UI)
 
-Roda ini **bukan undian acak biasa**. Ada tiga jalur hadiah yang berbeda, dan
-UI harus mengikuti hasil dari server, bukan mengarang sendiri.
+Roda ini **bukan undian acak biasa**. Ada empat jalur hadiah yang berbeda
+(ditandai panitia, jaminan, ambang otomatis, dan undian acak), dan UI harus
+mengikuti hasil dari server, bukan mengarang sendiri.
 
 **a. Harga spin bertingkat.** Spin pertama tiap akun lebih murah (3 poin),
 setelah itu harga normal (10 poin). Diskon berlaku sekali seumur akun. Karena
@@ -409,8 +411,8 @@ tukar untuk menebus hadiah, bukan barang yang dikirim ke peserta.
 
 **d. Grand Prize terkunci.** E-Money, Handphone, dan Sepeda Listrik bukan
 berpeluang kecil, tapi **dikunci**: selama `is_locked: true`, tidak ada satu
-pun peserta yang bisa mendapatkannya lewat jalur apa pun, termasuk jalur
-otomatis, jaminan, dan mode hadiah pasti. Tetap boleh digambar di roda sebagai
+pun peserta yang bisa mendapatkannya lewat jalur apa pun, termasuk penandaan
+panitia, jaminan, dan ambang otomatis. Tetap boleh digambar di roda sebagai
 pemanis, tapi jangan menjanjikannya ke peserta.
 
 > Kunci berbeda dari `active: false`. Nonaktif hanya mengeluarkan hadiah dari
@@ -426,17 +428,27 @@ pemanis, tapi jangan menjanjikannya ke peserta.
 baik karena belum beruntung maupun karena jatah hadiahnya sudah habis.
 Jumlahnya tidak terbatas.
 
+**f. Panitia bisa menetapkan hadiah untuk akun tertentu.** Dipakai saat
+pemenang sudah ditentukan di luar sistem, mis. hadiah panggung atau kompensasi
+keluhan. Hasilnya datang lewat `POST /rewards/spin` seperti biasa dengan
+`source: "targeted"`, jadi web kedua tidak perlu menyiapkan apa pun. Hadiah
+terkunci tetap tidak bisa ditetapkan.
+
 ### Ringkasan semua hadiah
 
 | Hadiah | Sifat | Cara didapat | Jatah |
 |--------|-------|--------------|-------|
 | 💨 **Dash** | default / cadangan | muncul kalau tidak dapat hadiah lain | tidak terbatas |
 | 🔑 **Kunci** | pasti didapat | titik acak antara spin 1-5, per akun | 41 orang, maks 1/akun |
-| 🥤 **Tumbler Eksklusif** | acak / otomatis | 1:300 di roda, atau otomatis saat 100 poin / 10x spin | 8 orang, maks 1/akun |
+| 🥤 **Tumbler Eksklusif** | berambang | ditahan sampai 100 poin / 10x spin, lalu diberikan otomatis | 8 orang, maks 1/akun |
 | 👕 **Kaos Eksklusif Toploker** | acak | 1:300 di roda | 6 orang, maks 1/akun |
-| 🏆 **Grand Prize** | mati secara default | hanya aktif kalau admin menyalakannya manual | diatur admin |
+| 🏆 **Grand Prize** | terkunci | tidak bisa didapat siapa pun selama `is_locked: true` | diatur admin |
 
 **Isi Grand Prize:** E-Money, Handphone, Sepeda Listrik.
+
+> **Satu akun hanya boleh membawa pulang satu barang.** Jatah di tabel ini
+> membatasi jumlah penerima per hadiah, tapi aturan satu barang berlaku di
+> atasnya: peserta yang sudah dapat Tumbler tidak akan pernah dapat Kaos.
 
 > Angka di tabel ini adalah **nilai bawaan**, bukan janji permanen. Admin bisa
 > mengubah jatah, ambang otomatis, dan status aktif kapan saja, jadi baca
@@ -680,12 +692,6 @@ jangan di-hardcode. Kalau paket dimatikan admin, `options` hanya berisi
 > `auto` bukan hasil keberuntungan, jadi lebih pas ditulis "Kamu dapat Kunci!"
 > daripada "Selamat, kamu beruntung!".
 
-**f. Panitia bisa menetapkan hadiah untuk akun tertentu.** Dipakai saat
-pemenang sudah ditentukan di luar sistem, mis. hadiah panggung. Hasilnya
-datang lewat `POST /rewards/spin` seperti biasa dengan `source: "targeted"`,
-jadi web kedua tidak perlu menyiapkan apa pun. Hadiah terkunci tetap tidak
-bisa ditetapkan.
-
 > **Setiap panggilan tercatat di sisi kami** beserta poin yang ditagih dan
 > hadiah yang keluar, dan bisa dilihat panitia di menu Log Spin. Jadi kalau
 > ada peserta protes "sudah bayar poin tapi tidak dapat apa-apa", panitia
@@ -718,9 +724,15 @@ curl -X POST $BASE/rewards/redeem \
 curl -X POST $BASE/rewards/spin \
   -H "X-Api-Key: $KEY" -H "Content-Type: application/json" \
   -d '{"email":"budi@sekolah.sch.id","option":"bundle"}'
-```
 
----
+# Hadiah milik satu akun + status klaimnya
+curl $BASE/rewards/my-prizes/budi@sekolah.sch.id -H "X-Api-Key: $KEY"
+
+# Ajukan klaim satu hadiah
+curl -X POST $BASE/rewards/claims \
+  -H "X-Api-Key: $KEY" -H "Content-Type: application/json" \
+  -d '{"email":"budi@sekolah.sch.id","spin_result_id":"8f1c...","name":"Budi Santoso","school":"SMKN 1 Semarang","region":"Kota Semarang","contact":"081234567890"}'
+```
 
 ### 8.9 Klaim hadiah
 
@@ -792,6 +804,12 @@ Yang ditolak server:
 
 Klaim yang ditolak bisa dikembalikan panitia ke `pending` untuk diproses
 ulang, jadi jangan menganggap `rejected` sebagai akhir yang permanen.
+
+> Peserta hanya bisa mengajukan hadiah miliknya sendiri, dan satu hadiah hanya
+> menerima satu pengajuan. Dua-duanya ditegakkan server, jadi kalaupun ada yang
+> memanggil endpoint ini langsung, dia tidak bisa mengklaim hadiah orang lain.
+
+---
 
 ## 9. Peserta yang Sudah Lolos / Golden Buzzer
 
@@ -939,10 +957,15 @@ curl -X POST $BASE/schools \
   (`/rewards/catalog`, `/rewards/prizes`, `/rewards/spin-options`), jangan
   di-hardcode. Pemenang spin ditentukan server, animasi roda hanya mengikuti.
 - **Spin bukan undian acak biasa** (bagian 8.1): Kunci pasti didapat di titik
-  acak spin ke-1..5 dan dibatasi 41 orang, Tumbler bisa diberikan otomatis saat
-  100 poin / 10x spin, dan Grand Prize mati sampai admin menyalakannya. Harga
-  spin pertama tiap akun juga lebih murah, jadi tanyakan
+  acak spin ke-1..5 dan dibatasi 41 orang, Tumbler ditahan sampai 100 poin /
+  10x spin lalu diberikan otomatis, dan Grand Prize terkunci sehingga tidak
+  bisa didapat siapa pun. **Satu akun hanya boleh menerima satu barang seumur
+  hidup.** Harga spin pertama tiap akun juga lebih murah, jadi tanyakan
   `/rewards/spin-price/{email}` sebelum menampilkan harga.
+- **Klaim hadiah** (bagian 8.9): hadiah tidak otomatis dikirim. Peserta
+  mengajukan lewat `POST /rewards/claims` dengan nama, sekolah, daerah, dan
+  kontak, lalu panitia memprosesnya. Pakai `GET /rewards/my-prizes/{email}`
+  untuk tahu mana yang belum diajukan.
 - **Peserta yang sudah lolos / Golden Buzzer** (bagian 9): mereka berhenti
   menerima vote, jadi matikan tombol dukung untuk peserta yang muncul di
   `GET /winners`. Kolom `via` memberi tahu jalurnya, dan Golden Buzzer selalu
