@@ -1,4 +1,4 @@
-import { Injectable } from "@nestjs/common";
+import { Injectable, Logger, OnModuleInit } from "@nestjs/common";
 import { DataSource } from "typeorm";
 
 export interface VoterFilters {
@@ -51,8 +51,48 @@ export interface ActivityFilters {
  * participant_supporters_detail). All rows snake_case (old API shape).
  */
 @Injectable()
-export class AdminService {
+export class AdminService implements OnModuleInit {
+  private readonly logger = new Logger(AdminService.name);
+
   constructor(private readonly db: DataSource) {}
+
+  /**
+   * Indeks pendukung query dashboard.
+   *
+   * Dibuat di sini, bukan lewat migrasi, karena DB_SYNC=false di produksi
+   * dan pola ini sudah dipakai modul lain. CONCURRENTLY tidak dipakai sebab
+   * tidak boleh jalan di dalam transaksi, dan tabel-tabel ini masih kecil.
+   *
+   * Indeks pada lower(email) penting: seluruh pencocokan identitas voter
+   * memakai lower() untuk menyamakan kapitalisasi, dan tanpa indeks
+   * berekspresi Postgres akan memindai tabel penuh setiap kali.
+   */
+  async onModuleInit() {
+    const perintah = [
+      `create index if not exists profiles_role_onboarded
+         on profiles (role, onboarded)`,
+      `create index if not exists profiles_email_lower
+         on profiles (lower(email)) where email is not null`,
+      `create index if not exists participants_email_lower
+         on participants (lower(email)) where email is not null`,
+      `create index if not exists participants_profile
+         on participants (profile_id) where profile_id is not null`,
+      `create index if not exists dv_bot_phone
+         on daily_votes (voter_phone) where is_bot = false`,
+      `create index if not exists dv_bot_email_lower
+         on daily_votes (lower(voter_email)) where is_bot = false`,
+    ];
+    for (const sql of perintah) {
+      try {
+        await this.db.query(sql);
+      } catch (e) {
+        // Indeks gagal dibuat tidak boleh menggagalkan start aplikasi:
+        // dashboard tetap benar, hanya lebih lambat.
+        const sebab = e instanceof Error ? e.message : String(e);
+        this.logger.warn(`Indeks dashboard gagal dibuat: ${sebab}`);
+      }
+    }
+  }
 
   async stats() {
     // Angka dashboard sengaja dipilah, bukan satu total kasar, supaya panitia
@@ -68,6 +108,53 @@ export class AdminService {
     // (pernah vote) ∪ (pernah quest approved) ∪ (voter onboarded walau belum
     // vote), supaya angka dashboard & daftar tidak beda.
     const rows = await this.db.query(`
+      with
+      -- Email peserta dinormalkan sekali. Dipakai mengeluarkan akun peserta
+      -- dari hitungan pendukung tanpa mengulang pencocokan lower() di dalam
+      -- OR, yang membuat Postgres membuang indeks.
+      peserta_email as (
+        select lower(email) as email from participants where email is not null
+      ),
+      peserta_profil as (
+        select profile_id from participants where profile_id is not null
+      ),
+      -- Identitas voter yang pernah benar-benar vote, dikumpulkan sekali.
+      -- Dipisah per nomor dan per email karena vote menyimpan identitas
+      -- voter apa adanya, bukan referensi ke profil.
+      vote_phone as (
+        select distinct voter_phone as phone from daily_votes
+         where is_bot = false and voter_phone is not null
+      ),
+      vote_email as (
+        select distinct lower(voter_email) as email from daily_votes
+         where is_bot = false and voter_email is not null
+      ),
+      -- Identitas seluruh akun non-admin, dipakai mencari voter yang vote
+      -- tanpa punya akun.
+      profil_phone as (
+        select distinct phone_number as phone from profiles
+         where role <> 'admin' and phone_number is not null
+      ),
+      profil_email as (
+        select distinct lower(email) as email from profiles
+         where role <> 'admin' and email is not null
+      ),
+      -- Satu baris per akun voter non-peserta, lengkap dengan penanda yang
+      -- dibutuhkan seluruh statistik corong.
+      akun_voter as (
+        select pr.id,
+               pr.onboarded,
+               (pr.phone_number is not null
+                  and exists (select 1 from vote_phone v where v.phone = pr.phone_number))
+               or (pr.email is not null
+                  and exists (select 1 from vote_email v where v.email = lower(pr.email)))
+                 as pernah_vote
+          from profiles pr
+         where pr.role = 'voter'
+           and not exists (select 1 from peserta_profil pp where pp.profile_id = pr.id)
+           and (pr.email is null
+                or not exists (select 1 from peserta_email pe where pe.email = lower(pr.email)))
+      )
       select
         (select count(distinct school_id) from participants
           where school_id is not null)::int                          as total_schools,
@@ -151,64 +238,21 @@ export class AdminService {
         -- Tiap tahap HIMPUNAN BAGIAN dari tahap sebelumnya, jadi tidak boleh
         -- dijumlahkan mentah-mentah:
         --   punya akun > onboarding selesai > pernah vote
-        (select count(*) from profiles pr
-          where pr.role = 'voter'
-            and not exists (
-              select 1 from participants p
-              where p.profile_id = pr.id
-                 or (pr.email is not null
-                     and lower(p.email) = lower(pr.email))
-            ))::int                                                  as accounts_total,
-        (select count(*) from profiles pr
-          where pr.role = 'voter' and pr.onboarded = true
-            and not exists (
-              select 1 from participants p
-              where p.profile_id = pr.id
-                 or (pr.email is not null
-                     and lower(p.email) = lower(pr.email))
-            ))::int                                                  as accounts_onboarded,
-        (select count(*) from profiles pr
-          where pr.role = 'voter' and pr.onboarded = false
-            and not exists (
-              select 1 from participants p
-              where p.profile_id = pr.id
-                 or (pr.email is not null
-                     and lower(p.email) = lower(pr.email))
-            ))::int                                                  as accounts_not_onboarded,
-        -- Pernah vote dicocokkan lewat nomor WA maupun email, karena vote
-        -- menyimpan identitas voter apa adanya, bukan referensi ke profil.
-        (select count(*) from profiles pr
-          where pr.role = 'voter'
-            and not exists (
-              select 1 from participants p
-              where p.profile_id = pr.id
-                 or (pr.email is not null
-                     and lower(p.email) = lower(pr.email))
-            )
-            and exists (
-              select 1 from daily_votes dv
-              where dv.is_bot = false
-                and ((pr.phone_number is not null
-                      and dv.voter_phone = pr.phone_number)
-                  or (pr.email is not null
-                      and lower(dv.voter_email) = lower(pr.email)))
-            ))::int                                                  as accounts_voted,
-        (select count(*) from profiles pr
-          where pr.role = 'voter' and pr.onboarded = true
-            and not exists (
-              select 1 from participants p
-              where p.profile_id = pr.id
-                 or (pr.email is not null
-                     and lower(p.email) = lower(pr.email))
-            )
-            and not exists (
-              select 1 from daily_votes dv2
-              where dv2.is_bot = false
-                and ((pr.phone_number is not null
-                      and dv2.voter_phone = pr.phone_number)
-                  or (pr.email is not null
-                      and lower(dv2.voter_email) = lower(pr.email)))
-            ))::int                                                  as accounts_onboarded_no_vote,
+        --
+        -- Kelima angka di bawah dibaca dari CTE akun_voter, bukan dihitung
+        -- ulang lima kali. Bentuk lamanya mengulang subquery NOT EXISTS yang
+        -- sama untuk setiap statistik, dan karena pencocokan email memakai
+        -- lower() di dalam OR, Postgres tak bisa memakai indeks sama sekali:
+        -- tiap baris profil memindai seluruh tabel peserta. Dua statistik
+        -- terakhir bahkan memasangkannya dengan pemindaian tabel vote, jadi
+        -- biayanya berlipat. Itu penyebab dashboard produksi memuat sangat
+        -- lama.
+        (select count(*) from akun_voter)::int                       as accounts_total,
+        (select count(*) from akun_voter where onboarded)::int       as accounts_onboarded,
+        (select count(*) from akun_voter where not onboarded)::int   as accounts_not_onboarded,
+        (select count(*) from akun_voter where pernah_vote)::int     as accounts_voted,
+        (select count(*) from akun_voter
+          where onboarded and not pernah_vote)::int                  as accounts_onboarded_no_vote,
 
         -- AKUN PESERTA, dihitung terpisah dari corong. Peserta boleh vote
         -- ke peserta lain, jadi kontribusinya perlu terlihat tapi tidak
@@ -217,26 +261,25 @@ export class AdminService {
                                                                      as participant_accounts,
         (select count(*) from profiles pr
           where pr.role = 'participant'
-            and exists (
-              select 1 from daily_votes dv3
-              where dv3.is_bot = false
-                and ((pr.phone_number is not null
-                      and dv3.voter_phone = pr.phone_number)
-                  or (pr.email is not null
-                      and lower(dv3.voter_email) = lower(pr.email)))
-            ))::int                                                  as participant_accounts_voted,
+            and ((pr.phone_number is not null
+                  and exists (select 1 from vote_phone v
+                               where v.phone = pr.phone_number))
+              or (pr.email is not null
+                  and exists (select 1 from vote_email v
+                               where v.email = lower(pr.email))))
+          )::int                                                     as participant_accounts_voted,
 
         -- Voter yang vote tanpa akun terdaftar (mis. data lama), supaya
         -- selisih antara total_voters dan corong akun bisa dijelaskan.
-        (select count(distinct dv.voter_phone) from daily_votes dv
-          where dv.is_bot = false and dv.voter_phone is not null
-            and not exists (
-              select 1 from profiles pr
-              where pr.role <> 'admin'
-                and (pr.phone_number = dv.voter_phone
-                  or (pr.email is not null
-                      and lower(pr.email) = lower(dv.voter_email)))
-            ))::int                                                  as voters_without_account,
+        (select count(*) from (
+           select distinct dv.voter_phone as phone, lower(dv.voter_email) as email
+             from daily_votes dv
+            where dv.is_bot = false and dv.voter_phone is not null
+         ) v
+          where not exists (select 1 from profil_phone pp where pp.phone = v.phone)
+            and (v.email is null
+                 or not exists (select 1 from profil_email pe where pe.email = v.email))
+          )::int                                                     as voters_without_account,
 
         (select coalesce(sum(total_points), 0) from participants)::int as total_points`);
     return rows[0];
