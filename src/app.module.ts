@@ -18,6 +18,7 @@ import { RoundsModule } from "./modules/rounds/rounds.module";
 import { RegionsModule } from "./modules/regions/regions.module";
 import { IntegrationsModule } from "./modules/integrations/integrations.module";
 import { RewardsModule } from "./modules/rewards/rewards.module";
+import { AssistantModule } from "./modules/assistant/assistant.module";
 import { HealthModule } from "./modules/health/health.module";
 
 @Module({
@@ -40,6 +41,7 @@ import { HealthModule } from "./modules/health/health.module";
     RegionsModule,
     IntegrationsModule,
     RewardsModule,
+    AssistantModule,
     HealthModule,
   ],
 })
