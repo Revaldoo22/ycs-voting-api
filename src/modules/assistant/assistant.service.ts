@@ -7,7 +7,7 @@ import {
   ServiceUnavailableException,
 } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
-import { resolvePage } from "./page-context";
+import { DASAR_HITUNG, resolvePage } from "./page-context";
 
 /** Satu pesan dalam percakapan. */
 export type ChatTurn = { role: "user" | "assistant"; content: string };
@@ -79,11 +79,20 @@ export class AssistantService {
       "Yang perlu kamu ketahui tentang halaman ini:",
       ...info.features.map((f) => `- ${f}`),
       "",
+      // Disertakan di setiap halaman: pertanyaan "angka ini dari mana" muncul
+      // di mana saja, dan tanpa rumusnya model akan mengarang cara hitung
+      // yang terdengar masuk akal tapi salah.
+      "Cara perhitungan yang berlaku di seluruh sistem:",
+      ...DASAR_HITUNG.map((d) => `- ${d}`),
+      "",
       "Aturan menjawab:",
       "- Jawab dalam bahasa Indonesia yang wajar, seperti menjelaskan ke rekan kerja.",
       "- Ringkas. Dua sampai empat kalimat cukup untuk pertanyaan biasa.",
       "- Kalau jawabannya ada di daftar di atas, pakai itu dan jangan menambah-nambahi.",
       "- Kalau kamu TIDAK tahu, katakan tidak tahu dan sarankan menanyakan ke pengembang. Jangan mengarang nama tombol, angka, atau aturan.",
+      "- Kalau ditanya asal sebuah angka, jelaskan rumusnya memakai daftar cara perhitungan di atas, dan sebutkan apa saja yang TIDAK ikut dihitung. Bagian yang tidak dihitung inilah yang biasanya membuat panitia bingung.",
+      "- Jangan menyebut nama tabel, nama kolom, atau potongan SQL. Panitia bukan pengembang, jadi jelaskan dengan istilah yang mereka lihat di layar.",
+      "- Jangan mengarang angka nyata. Kamu tahu CARA menghitungnya, bukan isi datanya, jadi jangan menyebut jumlah peserta, poin, atau vote yang sebenarnya.",
       "- Jangan mengarang cara kerja teknis yang tidak disebutkan di atas.",
       "- Kalau pertanyaannya soal halaman lain, jawab sebisanya lalu sebutkan halaman mana yang tepat untuk itu.",
       "- Jangan pakai tanda pisah em dash.",

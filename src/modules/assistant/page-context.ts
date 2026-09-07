@@ -19,6 +19,40 @@ export type PageInfo = {
   suggestions: string[];
 };
 
+/**
+ * Cara kerja perhitungan yang berlaku LINTAS halaman.
+ *
+ * Disertakan di setiap prompt, bukan hanya di halaman tertentu, karena
+ * panitia bertanya "angka ini dari mana" di halaman mana pun. Isinya
+ * diverifikasi langsung dari query yang benar-benar dipakai, jadi jangan
+ * mengubahnya tanpa memeriksa kode yang bersangkutan.
+ */
+export const DASAR_HITUNG: string[] = [
+  "POIN PESERTA = jumlah baris vote berstatus approved untuk peserta itu, satu vote satu poin. Vote pending dan vote boost admin (is_bot) TIDAK dihitung. Karena itu poin peserta sama dengan jumlah vote approved-nya.",
+
+  "SALDO POIN SPIN = poin dari vote approved, ditambah penyesuaian manual admin, dikurangi poin yang sudah dibelanjakan. Rumusnya: tersedia = diperoleh + penyesuaian - terpakai, dan tidak pernah minus. Penyesuaian manual sengaja terpisah dari vote supaya menambah saldo tidak menaikkan statistik event maupun klasemen.",
+
+  "VOTE BOOST ADMIN tidak menghasilkan poin spin karena ditandai is_bot dan disaring di semua perhitungan. Itu sebabnya menu Penyesuaian Poin ada.",
+
+  "TOTAL VOTER = jumlah identitas unik berdasarkan nomor WA, gabungan tiga kelompok: pernah vote, pernah quest disetujui, dan akun voter yang sudah menyelesaikan onboarding walau belum vote. Karena gabungan, angkanya bisa lebih besar dari jumlah akun onboarding.",
+
+  "VOTE DITOLAK diambil dari tabel arsip, bukan dari tabel vote. Vote yang ditolak DIHAPUS dari tabel vote supaya voter bisa mengirim bukti ulang, jadi jejaknya hanya ada di arsip.",
+
+  "VOTER PULIH = voter unik yang pernah ditolak lalu mengajukan ulang dan akhirnya disetujui. VOTER HILANG = yang ditolak dan tidak pernah kembali. Dipisah karena angka ditolak saja tidak bisa membedakan keduanya.",
+
+  "POIN PESERTA DI SATU GELOMBANG = poin bawaan (carry) ditambah poin vote yang masuk di gelombang itu saja. Jadi angka di halaman gelombang bisa berbeda dari total poin peserta di klasemen, dan itu bukan kesalahan.",
+
+  "KUOTA EFEKTIF GELOMBANG = kuota dasar ditambah seluruh sisa slot dari gelombang sebelumnya yang sudah DITUTUP. Sisa slot satu gelombang = kuota dasarnya dikurangi jumlah yang lolos di situ. Dihitung ulang setiap kali dibaca, jadi perubahan panitia langsung terlihat.",
+
+  "GOLDEN BUZZER tidak ikut dihitung dalam jumlah lolos gelombang mana pun, jadi tidak memakai slot dan tidak mengurangi kuota.",
+
+  "PELUANG HADIAH SPIN = bobot hadiah dibagi total bobot semua hadiah yang benar-benar ikut diundi. Hadiah terkunci, hadiah nonaktif, hadiah berbobot nol, dan hadiah yang ambangnya belum tercapai tidak masuk pembagi ini.",
+
+  "JATAH HADIAH dihitung per ORANG, memakai jumlah email unik penerima, bukan jumlah barang. Akun yang sudah pernah menang tidak menambah pemakaian jatah kalau menang lagi.",
+
+  "PERINGKAT diurutkan dari poin tertinggi. Peringkat sekolah memakai akumulasi poin seluruh pesertanya.",
+];
+
 export const PAGES: Record<string, PageInfo> = {
   "/admin": {
     title: "Dashboard",
