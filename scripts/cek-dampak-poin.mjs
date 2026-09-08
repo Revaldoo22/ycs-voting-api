@@ -120,17 +120,53 @@ for (const r of rounds) {
   const keluar = [...lolosLama].filter((id) => !lolosBaru.has(id));
   const masuk = [...lolosBaru].filter((id) => !lolosLama.has(id));
 
+  const poinOf = new Map(rows.map((x) => [x.id, x.poin_baru]));
+
+  // Ambang poin terendah yang masih lolos di versi benar. Peserta berpoin
+  // sama dengan ambang ini hanya bersaing lewat tie-break nama, jadi
+  // pergeserannya bukan akibat bug poinnya.
+  const lolosBaruUrut = urut("poin_baru").slice(0, kuota);
+  const ambang = lolosBaruUrut.length
+    ? lolosBaruUrut[lolosBaruUrut.length - 1].poin_baru
+    : 0;
+
+  const nyata = (id) => poinOf.get(id) !== ambang;
+  const keluarNyata = keluar.filter(nyata);
+  const masukNyata = masuk.filter(nyata);
+
   console.log("\nPERBEDAAN DAFTAR LOLOS:");
+  console.log(`  Ambang poin lolos versi benar: ${ambang}`);
   if (keluar.length === 0 && masuk.length === 0) {
     console.log("  Tidak ada. Meski poinnya berubah, siapa yang lolos tetap sama.");
   } else {
-    console.log(`  ${keluar.length} keluar, ${masuk.length} masuk`);
-    keluar.forEach((id) =>
-      console.log(`  KELUAR : ${namaOf.get(id)}  (lolos versi lama, tidak versi benar)`),
+    console.log(
+      `  ${keluar.length} keluar, ${masuk.length} masuk ` +
+        `(${keluarNyata.length} keluar & ${masukNyata.length} masuk BUKAN karena tie-break)`,
     );
-    masuk.forEach((id) =>
-      console.log(`  MASUK  : ${namaOf.get(id)}  (seharusnya lolos)`),
-    );
+
+    if (keluarNyata.length || masukNyata.length) {
+      console.log("\n  BENAR-BENAR TERPENGARUH BUG POIN:");
+      keluarNyata.forEach((id) =>
+        console.log(
+          `  KELUAR : ${namaOf.get(id)}  (poin benar ${poinOf.get(id)}, di bawah ambang)`,
+        ),
+      );
+      masukNyata.forEach((id) =>
+        console.log(
+          `  MASUK  : ${namaOf.get(id)}  (poin benar ${poinOf.get(id)}, di atas ambang)`,
+        ),
+      );
+    }
+
+    const tieK = keluar.length - keluarNyata.length;
+    const tieM = masuk.length - masukNyata.length;
+    if (tieK || tieM) {
+      console.log(
+        `\n  ${tieK + tieM} sisanya berpoin tepat ${ambang}, sama dengan ambang.\n` +
+          "  Mereka bergeser hanya karena urutan nama saat poinnya seri, bukan\n" +
+          "  karena bug. Siapa pun yang masuk di antara mereka sama sahnya.",
+      );
+    }
   }
 
   // Yang sudah ditandai lolos di database, dibanding versi benar.
