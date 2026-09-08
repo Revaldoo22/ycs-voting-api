@@ -76,6 +76,7 @@ export class PublicService {
                          select sum(dv.points) from daily_votes dv
                          where dv.participant_id = rp.participant_id
                            and dv.round_id = rp.round_id
+                           and dv.status = 'approved' and dv.is_bot = false
                        ), 0))::int
                  from round_participants rp
                  join rounds r on r.id = rp.round_id
@@ -149,6 +150,7 @@ export class PublicService {
                          select sum(dv.points) from daily_votes dv
                          where dv.participant_id = rp.participant_id
                            and dv.round_id = rp.round_id
+                           and dv.status = 'approved' and dv.is_bot = false
                        ), 0))::int
                  from round_participants rp
                  join rounds r on r.id = rp.round_id

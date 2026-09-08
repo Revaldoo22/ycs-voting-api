@@ -15,11 +15,20 @@ const TOP_N_CAP = 5000;
  * round itu. Dipakai berulang di standings/close/populate, jadi satu sumber.
  * Query yang memakainya harus menaruh round_id di $1.
  */
+/**
+ * Poin vote satu peserta di satu gelombang.
+ *
+ * WAJIB menyaring approved dan bukan bot. Tanpa itu angkanya memasukkan
+ * vote yang masih menunggu verifikasi dan vote boost admin, sehingga poin
+ * gelombang bisa lebih besar dari total poin peserta, dan yang lebih
+ * berbahaya: penentuan siapa lolos memakai angka yang belum sah.
+ */
 const ROUND_POINTS_LATERAL = `
   left join lateral (
     select coalesce(sum(dv.points), 0) as points
     from daily_votes dv
     where dv.participant_id = rp.participant_id and dv.round_id = $1
+      and dv.status = 'approved' and dv.is_bot = false
   ) pt on true`;
 
 @Injectable()
@@ -109,6 +118,7 @@ export class RoundsService {
                    select sum(dv.points) from daily_votes dv
                    where dv.participant_id = rp.participant_id
                      and dv.round_id = r.id
+                     and dv.status = 'approved' and dv.is_bot = false
                  ), 0)
                ), 0)
               from round_participants rp
@@ -514,6 +524,7 @@ export class RoundsService {
            from daily_votes dv
            where dv.participant_id = rp.participant_id
              and dv.round_id = $1
+             and dv.status = 'approved' and dv.is_bot = false
          ) pt on true
         where rp.round_id = $1 and rp.participant_id = $2
           and rp.status = 'lolos'`,
@@ -716,6 +727,7 @@ export class RoundsService {
            from daily_votes dv
            where dv.participant_id = rp.participant_id
              and dv.round_id = rp.round_id
+             and dv.status = 'approved' and dv.is_bot = false
          ) pt on true
          where rp.status = 'lolos'
            -- Golden Buzzer sudah diambil blok di atas; jangan dobel.
@@ -755,6 +767,7 @@ export class RoundsService {
          from daily_votes dv
          where dv.participant_id = rp.participant_id
            and dv.round_id = rp.round_id
+           and dv.status = 'approved' and dv.is_bot = false
        ) pt on true
        where rp.status = 'lolos'
          -- Golden Buzzer punya daftarnya sendiri. Kalau ikut di sini namanya
