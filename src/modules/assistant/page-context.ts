@@ -265,6 +265,9 @@ export const PAGES: Record<string, PageInfo> = {
       "Ada dua mode: Undi Cepat memakai hadiah di kolom, dan mode roda menentukan hadiah dari segmen tempat roda berhenti.",
       "Kemenangan bisa dibatalkan, dan kuponnya kembali ke kolam undian.",
       "Undian ini TERPISAH dari spin hadiah di web kedua. Undian memakai kupon, spin memakai poin.",
+      "Daftar pemenang ada di bagian Riwayat Pemenang di halaman ini, memuat nama, kode kupon, dan hadiahnya.",
+      "Jumlah pemenang dihitung dari kupon yang sudah ditandai menang. Kupon yang kemenangannya dibatalkan tidak ikut dihitung karena kembali ke kolam undian.",
+      "Hadiah yang tampil di riwayat dibaca dari data kupon, jadi selalu hadiah yang sebenarnya diterima, bukan hadiah yang tertulis saat undian dimulai.",
     ],
     suggestions: [
       "Apa bedanya Undian dan Spin hadiah?",
