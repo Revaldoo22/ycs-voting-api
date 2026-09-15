@@ -20,6 +20,31 @@ function roleHome(role: string): string {
   return "/";
 }
 
+/**
+ * Lapor pendaftaran voter ke web PMB (analytics lead, bukan bagian alur
+ * onboarding). Fire-and-forget: gagal/timeout tidak boleh menggagalkan
+ * onboarding voter di web ini.
+ */
+function trackPmbSubmit(data: {
+  nama: string;
+  email: string;
+  phone: string;
+}) {
+  fetch("https://pmb.stekom.ac.id/api/tracking/submit-direct", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      source_page: "Idola Lainnya",
+      nama: data.nama,
+      email: data.email,
+      phone: data.phone,
+      data: "onboarding_voter",
+    }),
+  }).catch(() => {
+    /* tracking gagal tidak boleh mengganggu onboarding */
+  });
+}
+
 @Injectable()
 export class AuthService {
   constructor(
@@ -301,6 +326,12 @@ export class AuthService {
       user.stekomSource = dto.stekom_source?.trim() || null;
     user.onboarded = true;
     await this.profiles.save(user);
+
+    trackPmbSubmit({
+      nama: user.name ?? "",
+      email: user.email ?? "",
+      phone: user.phoneNumber ?? "",
+    });
 
     // Token lama masih membawa onboarded=false → terbitkan ulang agar gate
     // middleware langsung meloloskan tanpa harus login ulang.
