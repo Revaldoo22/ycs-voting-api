@@ -40,6 +40,9 @@ async function sendTracking(row) {
       phone: row.phone_number ?? "",
       data: "onboarding_voter_backfill",
     }),
+    // Cegah request menggantung tanpa batas kalau server PMB tidak
+    // merespons (kejadian sebelumnya: proses stuck tanpa progress).
+    signal: AbortSignal.timeout(10_000),
   });
   if (!res.ok) {
     throw new Error(`HTTP ${res.status}: ${await res.text().catch(() => "")}`);
