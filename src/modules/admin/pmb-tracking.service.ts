@@ -147,7 +147,15 @@ export class PmbTrackingService {
           );
         } catch (e) {
           status = "fail";
-          error = (e instanceof Error ? e.message : String(e)).slice(0, 300);
+          // fetch() Node membungkus error jaringan asli di `cause` (mis.
+          // ENOTFOUND, ECONNRESET), sedangkan .message sendiri sering cuma
+          // "fetch failed" yang tidak informatif. Sertakan keduanya.
+          const base = e instanceof Error ? e.message : String(e);
+          const rawCause = e instanceof Error ? (e as { cause?: unknown }).cause : undefined;
+          const cause = rawCause
+            ? ` — ${rawCause instanceof Error ? rawCause.message : String(rawCause)}`
+            : "";
+          error = (base + cause).slice(0, 300);
         }
 
         await items.save(
