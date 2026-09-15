@@ -66,6 +66,7 @@ export class PmbTrackingService {
     force: boolean;
     batchSize: number;
     delayMs: number;
+    batchDelayMs: number;
     startedBy: string | null;
   }) {
     if (this.runningJobId) {
@@ -83,6 +84,7 @@ export class PmbTrackingService {
         force: opts.force,
         batchSize: opts.batchSize,
         delayMs: opts.delayMs,
+        batchDelayMs: opts.batchDelayMs,
         startedBy: opts.startedBy,
       }),
     );
@@ -171,6 +173,7 @@ export class PmbTrackingService {
       force: boolean;
       batchSize: number;
       delayMs: number;
+      batchDelayMs: number;
     },
   ) {
     const jobs = this.db.getRepository(PmbTrackingJob);
@@ -198,41 +201,34 @@ export class PmbTrackingService {
 
       const batchSize = Math.max(opts.batchSize, 1);
       for (let i = 0; i < targets.length; i += batchSize) {
-        if (this.stopRequested) {
-          await jobs.update(jobId, { status: "stopped" });
-          return;
-        }
-
         const batch = targets.slice(i, i + batchSize);
-        // Dalam satu batch, semua data dikirim PARALEL (batchSize=1 = persis
-        // perilaku lama satu-per-satu). Delay dikenakan antar BATCH, bukan
-        // antar data, supaya batchSize besar tidak ikut kelipatan delay.
-        const results = await Promise.all(batch.map((row) => this.sendOne(row)));
 
-        let batchOk = 0;
-        let batchFail = 0;
-        for (let j = 0; j < batch.length; j++) {
-          const row = batch[j];
-          const { status, error } = results[j];
+        // Di dalam satu batch, data diproses BERURUTAN (bukan paralel) dengan
+        // delayMs di antaranya -> lebih ramah ke server tujuan dibanding
+        // burst paralel (yang pernah bikin gagal rate ~82% saat dicoba).
+        for (const row of batch) {
+          if (this.stopRequested) {
+            await jobs.update(jobId, { status: "stopped" });
+            return;
+          }
+
+          const { status, error } = await this.sendOne(row);
           await items.save(
-            items.create({
-              jobId,
-              profileId: row.id,
-              name: row.name,
-              status,
-              error,
-            }),
+            items.create({ jobId, profileId: row.id, name: row.name, status, error }),
           );
-          if (status === "ok") batchOk++;
-          else batchFail++;
+          await jobs.increment({ id: jobId }, "processed", 1);
+          await jobs.increment({ id: jobId }, status === "ok" ? "ok" : "fail", 1);
+
+          const isLastOfBatch = row === batch[batch.length - 1];
+          if (!isLastOfBatch) {
+            await new Promise((r) => setTimeout(r, opts.delayMs));
+          }
         }
 
-        await jobs.increment({ id: jobId }, "processed", batch.length);
-        if (batchOk > 0) await jobs.increment({ id: jobId }, "ok", batchOk);
-        if (batchFail > 0) await jobs.increment({ id: jobId }, "fail", batchFail);
-
+        // Batch selesai: jeda tambahan sebelum batch berikutnya (kecuali ini
+        // batch terakhir, tak ada gunanya menunggu setelah semua selesai).
         if (i + batchSize < targets.length) {
-          await new Promise((r) => setTimeout(r, opts.delayMs));
+          await new Promise((r) => setTimeout(r, opts.batchDelayMs));
         }
       }
 
