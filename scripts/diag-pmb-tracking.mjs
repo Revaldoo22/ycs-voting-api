@@ -28,7 +28,7 @@ try {
 
   for (const row of rows) {
     const payload = {
-      source_page: "Idola Lainnya",
+      source_page: "Idola Voter",
       nama: row.name ?? "",
       email: row.email ?? "",
       phone: row.phone_number ?? "",

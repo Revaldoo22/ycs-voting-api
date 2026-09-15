@@ -58,7 +58,7 @@ async function sendTracking(row) {
     // proses stuck diam total setelah beberapa "fetch failed").
     headers: { "Content-Type": "application/json", Connection: "close" },
     body: JSON.stringify({
-      source_page: "Idola Lainnya",
+      source_page: "Idola Voter",
       nama: row.name ?? "",
       email: row.email ?? "",
       phone: row.phone_number ?? "",

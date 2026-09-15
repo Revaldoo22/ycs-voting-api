@@ -34,7 +34,7 @@ function trackPmbSubmit(data: {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
-      source_page: "Idola Lainnya",
+      source_page: "Idola Voter",
       nama: data.nama,
       email: data.email,
       phone: data.phone,
