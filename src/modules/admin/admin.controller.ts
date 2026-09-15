@@ -8,16 +8,25 @@ import {
   Query,
   UseGuards,
 } from "@nestjs/common";
-import { ArrayMaxSize, ArrayMinSize, IsArray, IsBoolean, IsOptional, IsUUID } from "class-validator";
+import {
+  IsBoolean,
+  IsInt,
+  IsOptional,
+  IsString,
+  Max,
+  Min,
+} from "class-validator";
 import {
   AdminService,
   ActivityFilters,
   VoteHistoryFilters,
   VoterFilters,
 } from "./admin.service";
-import { JwtGuard } from "../../common/guards/jwt.guard";
+import { PmbTrackingService } from "./pmb-tracking.service";
+import { JwtGuard, JwtPayload } from "../../common/guards/jwt.guard";
 import { RolesGuard } from "../../common/guards/roles.guard";
 import { Roles } from "../../common/decorators/roles.decorator";
+import { CurrentUser } from "../../common/decorators/current-user.decorator";
 
 function voterFilters(q: Record<string, string | undefined>): VoterFilters {
   return {
@@ -64,24 +73,36 @@ function activityFilters(q: Record<string, string | undefined>): ActivityFilters
   };
 }
 
-class SubmitPmbTrackingDto {
-  @IsArray()
-  @ArrayMinSize(1)
-  @ArrayMaxSize(500)
-  @IsUUID(undefined, { each: true })
-  ids!: string[];
+class StartPmbTrackingJobDto {
+  @IsOptional()
+  @IsString()
+  intent?: string;
+
+  @IsOptional()
+  @IsString()
+  awareness?: string;
 
   /** Kirim ulang meski pmb_tracked_at sudah terisi. Default: skip yang sudah. */
   @IsOptional()
   @IsBoolean()
   force?: boolean;
+
+  /** Jeda antar data dalam milidetik. Default 1000 (~5 jam utk 18rb data). */
+  @IsOptional()
+  @IsInt()
+  @Min(100)
+  @Max(60_000)
+  delay_ms?: number;
 }
 
 @Controller("admin")
 @UseGuards(JwtGuard, RolesGuard)
 @Roles("admin")
 export class AdminController {
-  constructor(private readonly admin: AdminService) {}
+  constructor(
+    private readonly admin: AdminService,
+    private readonly pmbTracking: PmbTrackingService,
+  ) {}
 
   @Get("stats")
   stats() {
@@ -126,9 +147,35 @@ export class AdminController {
     return this.admin.leads({ intent, awareness });
   }
 
-  @Post("leads/submit-pmb")
-  submitPmbTracking(@Body() dto: SubmitPmbTrackingDto) {
-    return this.admin.submitPmbTracking(dto.ids, dto.force ?? false);
+  /** Mulai backfill kirim tracking PMB sebagai job background (bisa berjam-jam). */
+  @Post("leads/submit-pmb/start")
+  startPmbTracking(
+    @Body() dto: StartPmbTrackingJobDto,
+    @CurrentUser() user: JwtPayload,
+  ) {
+    return this.pmbTracking.start({
+      intent: dto.intent,
+      awareness: dto.awareness,
+      force: dto.force ?? false,
+      delayMs: dto.delay_ms ?? 1000,
+      startedBy: user.name ?? user.sub,
+    });
+  }
+
+  @Post("leads/submit-pmb/:jobId/stop")
+  stopPmbTracking(@Param("jobId", ParseUUIDPipe) jobId: string) {
+    return this.pmbTracking.stop(jobId);
+  }
+
+  @Get("leads/submit-pmb/:jobId")
+  pmbTrackingStatus(@Param("jobId", ParseUUIDPipe) jobId: string) {
+    return this.pmbTracking.status(jobId);
+  }
+
+  /** Job terakhir (buat halaman admin auto-tampil progress setelah reload). */
+  @Get("leads/submit-pmb")
+  pmbTrackingLatest() {
+    return this.pmbTracking.latest();
   }
 
   @Get("pmb-insight")

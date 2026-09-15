@@ -4,11 +4,12 @@ import { AdminService } from "./admin.service";
 import { AdminController } from "./admin.controller";
 import { RaffleController } from "./raffle.controller";
 import { RaffleEventsService } from "./raffle-events.service";
+import { PmbTrackingService } from "./pmb-tracking.service";
 
 @Module({
   imports: [AuthModule],
   controllers: [AdminController, RaffleController],
-  providers: [AdminService, RaffleEventsService],
+  providers: [AdminService, RaffleEventsService, PmbTrackingService],
   // AdminService diekspor agar IntegrationsController bisa memakai ulang
   // query voteHistory (satu sumber SQL, tak diduplikasi).
   exports: [AdminService],

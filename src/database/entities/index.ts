@@ -34,6 +34,11 @@ export {
 export { Rejection, type RejectionKind } from "./rejection.entity";
 export { Announcement, AnnouncementClick } from "./announcement.entity";
 export {
+  PmbTrackingJob,
+  PmbTrackingJobItem,
+  type PmbJobStatus,
+} from "./pmb-tracking-job.entity";
+export {
   RewardCatalog,
   SpinPrize,
   RewardRedemption,
@@ -63,6 +68,7 @@ import { Notification } from "./notification.entity";
 import { Round, RoundParticipant } from "./round.entity";
 import { Rejection } from "./rejection.entity";
 import { Announcement, AnnouncementClick } from "./announcement.entity";
+import { PmbTrackingJob, PmbTrackingJobItem } from "./pmb-tracking-job.entity";
 import {
   RewardCatalog,
   SpinPrize,
@@ -94,6 +100,8 @@ export const ENTITIES = [
   Rejection,
   Announcement,
   AnnouncementClick,
+  PmbTrackingJob,
+  PmbTrackingJobItem,
   RewardCatalog,
   SpinPrize,
   RewardRedemption,
