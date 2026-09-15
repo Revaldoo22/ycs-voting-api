@@ -1,18 +1,21 @@
 // Backfill tracking pendaftaran voter ke web PMB untuk voter yang SUDAH
 // selesai onboarding SEBELUM integrasi tracking dipasang.
 //
-// Kirim POST ke pmb.stekom.ac.id/api/tracking/submit-direct per voter,
-// dibatch + delay antar batch supaya tidak membanjiri API tujuan.
+// Hanya voter yang di wizard onboarding menyatakan sudah tertarik ke
+// Universitas STEKOM (stekom_awareness = 'sudah_minat').
+//
+// Kirim POST ke pmb.stekom.ac.id/api/tracking/submit-direct SATU PER SATU
+// (berurutan, bukan paralel) dengan jeda antar request supaya tidak
+// membanjiri API tujuan (burst paralel sebelumnya menyebabkan banyak gagal).
 //
 //   node scripts/backfill-pmb-tracking.mjs
 //
-// Aman dijalankan berulang (tracking itu sendiri tak divalidasi idempoten
-// di sisi PMB, jadi jangan dijalankan berkali-kali tanpa perlu).
+// Aman dijalankan berulang secara teknis, tapi hindari kirim dobel ke PMB
+// tanpa perlu.
 import "dotenv/config";
 import pg from "pg";
 
-const BATCH_SIZE = 20;
-const DELAY_MS = 2000;
+const DELAY_MS = 250;
 const TRACKING_URL = "https://pmb.stekom.ac.id/api/tracking/submit-direct";
 
 const client = new pg.Client({
@@ -49,24 +52,26 @@ try {
     from profiles
     where onboarded = true
       and role in ('voter', 'participant')
+      and stekom_awareness = 'sudah_minat'
     order by created_at asc
   `);
-  console.log(`Kandidat backfill: ${rows.length} voter sudah onboarding`);
+  console.log(`Kandidat backfill (sudah_minat): ${rows.length} voter`);
 
   let ok = 0;
   let fail = 0;
-  for (let i = 0; i < rows.length; i += BATCH_SIZE) {
-    const batch = rows.slice(i, i + BATCH_SIZE);
-    const results = await Promise.allSettled(batch.map(sendTracking));
-    for (const r of results) {
-      if (r.status === "fulfilled") ok++;
-      else fail++;
+  for (let i = 0; i < rows.length; i++) {
+    const row = rows[i];
+    try {
+      await sendTracking(row);
+      ok++;
+    } catch (e) {
+      fail++;
+      console.log(`Gagal [${row.id}]: ${e}`);
     }
-    console.log(
-      `Batch ${Math.floor(i / BATCH_SIZE) + 1}/${Math.ceil(rows.length / BATCH_SIZE)}: ` +
-        `${ok} sukses, ${fail} gagal (sejauh ini)`,
-    );
-    if (i + BATCH_SIZE < rows.length) await sleep(DELAY_MS);
+    if ((i + 1) % 50 === 0 || i === rows.length - 1) {
+      console.log(`${i + 1}/${rows.length}: ${ok} sukses, ${fail} gagal (sejauh ini)`);
+    }
+    if (i < rows.length - 1) await sleep(DELAY_MS);
   }
 
   console.log(`Selesai: ${ok} terkirim, ${fail} gagal dari ${rows.length} total.`);
