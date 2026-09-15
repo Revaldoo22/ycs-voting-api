@@ -87,7 +87,14 @@ class StartPmbTrackingJobDto {
   @IsBoolean()
   force?: boolean;
 
-  /** Jeda antar data dalam milidetik. Default 1000 (~5 jam utk 18rb data). */
+  /** Berapa data dikirim sekaligus (paralel) per batch. Default 1. */
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(50)
+  batch_size?: number;
+
+  /** Jeda antar BATCH dalam milidetik. Default 1000. */
   @IsOptional()
   @IsInt()
   @Min(100)
@@ -157,6 +164,7 @@ export class AdminController {
       intent: dto.intent,
       awareness: dto.awareness,
       force: dto.force ?? false,
+      batchSize: dto.batch_size ?? 1,
       delayMs: dto.delay_ms ?? 1000,
       startedBy: user.name ?? user.sub,
     });

@@ -64,6 +64,7 @@ export class PmbTrackingService {
     intent?: string;
     awareness?: string;
     force: boolean;
+    batchSize: number;
     delayMs: number;
     startedBy: string | null;
   }) {
@@ -80,6 +81,7 @@ export class PmbTrackingService {
         filterIntent: opts.intent || null,
         filterAwareness: opts.awareness || null,
         force: opts.force,
+        batchSize: opts.batchSize,
         delayMs: opts.delayMs,
         startedBy: opts.startedBy,
       }),
@@ -124,9 +126,52 @@ export class PmbTrackingService {
     return this.status(job.id);
   }
 
+  private async sendOne(row: {
+    id: string;
+    name: string | null;
+    email: string | null;
+    phone_number: string | null;
+  }) {
+    try {
+      const res = await fetch(TRACKING_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Connection: "close" },
+        body: JSON.stringify({
+          source_page: "Idola Voter",
+          nama: row.name ?? "",
+          email: row.email ?? "",
+          phone: row.phone_number ?? "",
+          data: "admin_leads_submit",
+        }),
+        signal: AbortSignal.timeout(10_000),
+      });
+      if (!res.ok) {
+        // Potong body respons: server tujuan bisa balas halaman error HTML
+        // panjang, dan ini disimpan ke DB lalu dikirim balik tiap polling
+        // status (recent_items 50 baris) -> kalau tak dibatasi, payload
+        // GET status bisa membengkak dan memicu limit ukuran di proxy.
+        const body = await res.text().catch(() => "");
+        throw new Error(`HTTP ${res.status}: ${body.slice(0, 300)}`);
+      }
+      await this.db.query(
+        `update profiles set pmb_tracked_at = now() where id = $1`,
+        [row.id],
+      );
+      return { status: "ok" as const, error: null as string | null };
+    } catch (e) {
+      return { status: "fail" as const, error: describeError(e).slice(0, 300) };
+    }
+  }
+
   private async run(
     jobId: string,
-    opts: { intent?: string; awareness?: string; force: boolean; delayMs: number },
+    opts: {
+      intent?: string;
+      awareness?: string;
+      force: boolean;
+      batchSize: number;
+      delayMs: number;
+    },
   ) {
     const jobs = this.db.getRepository(PmbTrackingJob);
     const items = this.db.getRepository(PmbTrackingJobItem);
@@ -151,59 +196,44 @@ export class PmbTrackingService {
       const targets = opts.force ? rows : rows.filter((r) => !r.pmb_tracked_at);
       await jobs.update(jobId, { total: targets.length });
 
-      for (const row of targets) {
+      const batchSize = Math.max(opts.batchSize, 1);
+      for (let i = 0; i < targets.length; i += batchSize) {
         if (this.stopRequested) {
           await jobs.update(jobId, { status: "stopped" });
           return;
         }
 
-        let status: "ok" | "fail" = "ok";
-        let error: string | null = null;
-        try {
-          const res = await fetch(TRACKING_URL, {
-            method: "POST",
-            headers: { "Content-Type": "application/json", Connection: "close" },
-            body: JSON.stringify({
-              source_page: "Idola Voter",
-              nama: row.name ?? "",
-              email: row.email ?? "",
-              phone: row.phone_number ?? "",
-              data: "admin_leads_submit",
+        const batch = targets.slice(i, i + batchSize);
+        // Dalam satu batch, semua data dikirim PARALEL (batchSize=1 = persis
+        // perilaku lama satu-per-satu). Delay dikenakan antar BATCH, bukan
+        // antar data, supaya batchSize besar tidak ikut kelipatan delay.
+        const results = await Promise.all(batch.map((row) => this.sendOne(row)));
+
+        let batchOk = 0;
+        let batchFail = 0;
+        for (let j = 0; j < batch.length; j++) {
+          const row = batch[j];
+          const { status, error } = results[j];
+          await items.save(
+            items.create({
+              jobId,
+              profileId: row.id,
+              name: row.name,
+              status,
+              error,
             }),
-            signal: AbortSignal.timeout(10_000),
-          });
-          if (!res.ok) {
-            // Potong body respons: server tujuan bisa balas halaman error HTML
-            // panjang, dan ini disimpan ke DB lalu dikirim balik tiap polling
-            // status (recent_items 50 baris) -> kalau tak dibatasi, payload
-            // GET status bisa membengkak dan memicu limit ukuran di proxy.
-            const body = await res.text().catch(() => "");
-            throw new Error(`HTTP ${res.status}: ${body.slice(0, 300)}`);
-          }
-          await this.db.query(
-            `update profiles set pmb_tracked_at = now() where id = $1`,
-            [row.id],
           );
-        } catch (e) {
-          status = "fail";
-          error = describeError(e).slice(0, 300);
+          if (status === "ok") batchOk++;
+          else batchFail++;
         }
 
-        await items.save(
-          items.create({
-            jobId,
-            profileId: row.id,
-            name: row.name,
-            status,
-            error,
-          }),
-        );
+        await jobs.increment({ id: jobId }, "processed", batch.length);
+        if (batchOk > 0) await jobs.increment({ id: jobId }, "ok", batchOk);
+        if (batchFail > 0) await jobs.increment({ id: jobId }, "fail", batchFail);
 
-        await jobs.increment({ id: jobId }, "processed", 1);
-        if (status === "ok") await jobs.increment({ id: jobId }, "ok", 1);
-        else await jobs.increment({ id: jobId }, "fail", 1);
-
-        await new Promise((r) => setTimeout(r, opts.delayMs));
+        if (i + batchSize < targets.length) {
+          await new Promise((r) => setTimeout(r, opts.delayMs));
+        }
       }
 
       await jobs.update(jobId, { status: "done" });

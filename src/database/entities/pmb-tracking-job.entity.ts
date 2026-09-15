@@ -36,6 +36,11 @@ export class PmbTrackingJob {
   @Column({ type: "boolean", default: false })
   force!: boolean;
 
+  /** Berapa data dikirim sekaligus (paralel) per batch. */
+  @Column({ name: "batch_size", type: "int", default: 1 })
+  batchSize!: number;
+
+  /** Jeda antar BATCH (bukan antar data) dalam milidetik. */
   @Column({ name: "delay_ms", type: "int", default: 1000 })
   delayMs!: number;
 
