@@ -52,7 +52,11 @@ function markDone(id) {
 async function sendTracking(row) {
   const res = await fetch(TRACKING_URL, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    // Paksa koneksi baru tiap request (bukan keep-alive) supaya socket
+    // "rusak" dari satu request gagal (fetch failed) tidak ikut membuat
+    // request berikutnya menggantung tanpa batas (kejadian sebelumnya:
+    // proses stuck diam total setelah beberapa "fetch failed").
+    headers: { "Content-Type": "application/json", Connection: "close" },
     body: JSON.stringify({
       source_page: "Idola Lainnya",
       nama: row.name ?? "",
@@ -61,7 +65,7 @@ async function sendTracking(row) {
       data: "onboarding_voter_backfill",
     }),
     // Cegah request menggantung tanpa batas kalau server PMB tidak
-    // merespons (kejadian sebelumnya: proses stuck tanpa progress).
+    // merespons.
     signal: AbortSignal.timeout(10_000),
   });
   if (!res.ok) {
@@ -90,8 +94,17 @@ try {
   let fail = 0;
   for (let i = 0; i < rows.length; i++) {
     const row = rows[i];
+    // Lapis kedua: kalau fetch/AbortSignal internal tetap menggantung
+    // (kejadian sebelumnya), paksa lanjut setelah 15 detik alih-alih diam
+    // selamanya. Item ini dihitung gagal dan akan dicoba lagi di run
+    // berikutnya (belum tercatat di file progress).
     try {
-      await sendTracking(row);
+      await Promise.race([
+        sendTracking(row),
+        new Promise((_, reject) =>
+          setTimeout(() => reject(new Error("watchdog timeout 15s")), 15_000),
+        ),
+      ]);
       markDone(row.id);
       ok++;
     } catch (e) {
