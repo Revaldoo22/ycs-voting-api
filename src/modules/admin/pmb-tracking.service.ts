@@ -134,7 +134,12 @@ export class PmbTrackingService {
             signal: AbortSignal.timeout(10_000),
           });
           if (!res.ok) {
-            throw new Error(`HTTP ${res.status}: ${await res.text().catch(() => "")}`);
+            // Potong body respons: server tujuan bisa balas halaman error HTML
+            // panjang, dan ini disimpan ke DB lalu dikirim balik tiap polling
+            // status (recent_items 50 baris) -> kalau tak dibatasi, payload
+            // GET status bisa membengkak dan memicu limit ukuran di proxy.
+            const body = await res.text().catch(() => "");
+            throw new Error(`HTTP ${res.status}: ${body.slice(0, 300)}`);
           }
           await this.db.query(
             `update profiles set pmb_tracked_at = now() where id = $1`,
@@ -142,7 +147,7 @@ export class PmbTrackingService {
           );
         } catch (e) {
           status = "fail";
-          error = e instanceof Error ? e.message : String(e);
+          error = (e instanceof Error ? e.message : String(e)).slice(0, 300);
         }
 
         await items.save(
