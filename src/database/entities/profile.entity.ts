@@ -68,6 +68,13 @@ export class Profile {
   stekomSource!: string | null;
 
   /**
+   * Waktu terakhir data lead ini dikirim ke tracking PMB
+   * (pmb.stekom.ac.id/api/tracking/submit-direct). Null = belum pernah.
+   */
+  @Column({ name: "pmb_tracked_at", type: "timestamptz", nullable: true })
+  pmbTrackedAt!: Date | null;
+
+  /**
    * Waktu voter mengonfirmasi follow akun IG/TikTok Univ STEKOM & TopLoker
    * (gerbang KLAIM KUPON undian, sekali seumur event), TERPISAH dari vote.
    */

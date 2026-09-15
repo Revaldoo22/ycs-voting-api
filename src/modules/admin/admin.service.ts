@@ -379,11 +379,11 @@ export class AdminService implements OnModuleInit {
    */
   async leads(f: { intent?: string; awareness?: string }) {
     return this.db.query(
-      `select pr.name, pr.phone_number, pr.email,
+      `select pr.id, pr.name, pr.phone_number, pr.email,
               sc.name as school_name, pr.voter_class, pr.voter_status,
               reg.name as kabupaten, prov.name as provinsi,
               pr.college_intent, pr.stekom_awareness, pr.stekom_source,
-              pr.created_at
+              pr.pmb_tracked_at, pr.created_at
        from profiles pr
        left join schools sc on sc.id = pr.school_id
        left join regions reg on reg.id = pr.region_id
@@ -394,6 +394,67 @@ export class AdminService implements OnModuleInit {
        order by pr.created_at desc`,
       [f.intent || null, f.awareness || null],
     );
+  }
+
+  /**
+   * Kirim leads terpilih ke tracking PMB (submit-direct), satu per satu
+   * dari server (bukan browser/CLI) supaya tidak tergantung koneksi admin
+   * yang bisa terputus. Yang sudah pernah terkirim (pmb_tracked_at != null)
+   * dilewati kecuali force=true. Tandai pmb_tracked_at setelah sukses.
+   */
+  async submitPmbTracking(ids: string[], force: boolean) {
+    const rows = (await this.db.query(
+      `select id, name, email, phone_number, pmb_tracked_at
+         from profiles
+        where id = any($1::uuid[])
+          and role = 'voter' and onboarded = true`,
+      [ids],
+    )) as {
+      id: string;
+      name: string | null;
+      email: string | null;
+      phone_number: string | null;
+      pmb_tracked_at: Date | null;
+    }[];
+
+    const targets = force ? rows : rows.filter((r) => !r.pmb_tracked_at);
+    const skipped = rows.length - targets.length;
+
+    let ok = 0;
+    const failed: { id: string; error: string }[] = [];
+    for (const row of targets) {
+      try {
+        const res = await fetch(
+          "https://pmb.stekom.ac.id/api/tracking/submit-direct",
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json", Connection: "close" },
+            body: JSON.stringify({
+              source_page: "Idola Lainnya",
+              nama: row.name ?? "",
+              email: row.email ?? "",
+              phone: row.phone_number ?? "",
+              data: "admin_leads_submit",
+            }),
+            signal: AbortSignal.timeout(10_000),
+          },
+        );
+        if (!res.ok) {
+          throw new Error(`HTTP ${res.status}: ${await res.text().catch(() => "")}`);
+        }
+        await this.db.query(
+          `update profiles set pmb_tracked_at = now() where id = $1`,
+          [row.id],
+        );
+        ok++;
+      } catch (e) {
+        failed.push({ id: row.id, error: e instanceof Error ? e.message : String(e) });
+      }
+      // Jeda kecil antar request, jangan bombardir API tujuan.
+      await new Promise((r) => setTimeout(r, 250));
+    }
+
+    return { total: ids.length, skipped, ok, fail: failed.length, failed };
   }
 
   /** Insight PMB: niat kuliah + sebaran kabupaten voter ber-akun. */

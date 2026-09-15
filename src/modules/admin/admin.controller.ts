@@ -1,11 +1,14 @@
 import {
+  Body,
   Controller,
   Get,
   Param,
   ParseUUIDPipe,
+  Post,
   Query,
   UseGuards,
 } from "@nestjs/common";
+import { ArrayMaxSize, ArrayMinSize, IsArray, IsBoolean, IsOptional, IsUUID } from "class-validator";
 import {
   AdminService,
   ActivityFilters,
@@ -61,6 +64,19 @@ function activityFilters(q: Record<string, string | undefined>): ActivityFilters
   };
 }
 
+class SubmitPmbTrackingDto {
+  @IsArray()
+  @ArrayMinSize(1)
+  @ArrayMaxSize(500)
+  @IsUUID(undefined, { each: true })
+  ids!: string[];
+
+  /** Kirim ulang meski pmb_tracked_at sudah terisi. Default: skip yang sudah. */
+  @IsOptional()
+  @IsBoolean()
+  force?: boolean;
+}
+
 @Controller("admin")
 @UseGuards(JwtGuard, RolesGuard)
 @Roles("admin")
@@ -108,6 +124,11 @@ export class AdminController {
     @Query("awareness") awareness?: string,
   ) {
     return this.admin.leads({ intent, awareness });
+  }
+
+  @Post("leads/submit-pmb")
+  submitPmbTracking(@Body() dto: SubmitPmbTrackingDto) {
+    return this.admin.submitPmbTracking(dto.ids, dto.force ?? false);
   }
 
   @Get("pmb-insight")
