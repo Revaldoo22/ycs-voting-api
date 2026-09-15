@@ -5,6 +5,45 @@ import { PmbTrackingJob, PmbTrackingJobItem } from "../../database/entities";
 const TRACKING_URL = "https://pmb.stekom.ac.id/api/tracking/submit-direct";
 
 /**
+ * fetch() Node membungkus error jaringan asli di `cause`, dan pada kegagalan
+ * DNS/koneksi ganda itu bisa berupa AggregateError (.message KOSONG, detail
+ * ada di .errors[]). Tanpa penanganan ini, log job cuma menampilkan
+ * "fetch failed —" tanpa info apa pun. Ambil errno (ECONNRESET/ETIMEDOUT/dst)
+ * dan pesan dari lapisan cause/errors yang paling dalam.
+ */
+function describeError(e: unknown): string {
+  if (!(e instanceof Error)) return String(e);
+  const parts: string[] = [e.message || e.name];
+
+  let cur: unknown = (e as { cause?: unknown }).cause;
+  let depth = 0;
+  while (cur && depth < 5) {
+    depth++;
+    if (cur instanceof AggregateError) {
+      const sub = cur.errors
+        .map((x) =>
+          x instanceof Error
+            ? `${x.name}:${x.message || (x as NodeJS.ErrnoException).code || ""}`
+            : String(x),
+        )
+        .join(", ");
+      parts.push(`AggregateError[${sub}]`);
+      break;
+    }
+    if (cur instanceof Error) {
+      const code = (cur as NodeJS.ErrnoException).code;
+      parts.push(cur.message || code || cur.name);
+      cur = (cur as { cause?: unknown }).cause;
+      continue;
+    }
+    parts.push(String(cur));
+    break;
+  }
+
+  return parts.filter(Boolean).join(" — ") || "Error tanpa pesan";
+}
+
+/**
  * Backfill kirim tracking ke PMB untuk RIBUAN data (bisa berjam-jam).
  * Berjalan sebagai job in-process (bukan request-response biasa): admin
  * memicu start lewat HTTP lalu request itu langsung selesai, sementara
@@ -147,15 +186,7 @@ export class PmbTrackingService {
           );
         } catch (e) {
           status = "fail";
-          // fetch() Node membungkus error jaringan asli di `cause` (mis.
-          // ENOTFOUND, ECONNRESET), sedangkan .message sendiri sering cuma
-          // "fetch failed" yang tidak informatif. Sertakan keduanya.
-          const base = e instanceof Error ? e.message : String(e);
-          const rawCause = e instanceof Error ? (e as { cause?: unknown }).cause : undefined;
-          const cause = rawCause
-            ? ` — ${rawCause instanceof Error ? rawCause.message : String(rawCause)}`
-            : "";
-          error = (base + cause).slice(0, 300);
+          error = describeError(e).slice(0, 300);
         }
 
         await items.save(
