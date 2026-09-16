@@ -1,4 +1,10 @@
-import { Injectable, ConflictException, NotFoundException } from "@nestjs/common";
+import {
+  Injectable,
+  ConflictException,
+  NotFoundException,
+  Logger,
+  OnModuleInit,
+} from "@nestjs/common";
 import { DataSource } from "typeorm";
 import { PmbTrackingJob, PmbTrackingJobItem } from "../../database/entities";
 
@@ -54,11 +60,31 @@ function describeError(e: unknown): string {
  * ada dua loop membanjiri API PMB bersamaan.
  */
 @Injectable()
-export class PmbTrackingService {
+export class PmbTrackingService implements OnModuleInit {
+  private readonly log = new Logger(PmbTrackingService.name);
   private runningJobId: string | null = null;
   private stopRequested = false;
 
   constructor(private readonly db: DataSource) {}
+
+  /**
+   * Loop job hidup di memori proses ini, jadi restart/crash container
+   * membunuhnya tanpa sempat memperbarui baris di DB. Tanpa ini, job mati
+   * tertinggal berstatus "running" selamanya: halaman admin terus memutar
+   * spinner, dan pengecekan "hanya 1 job aktif" jadi tak bisa dipercaya
+   * karena runningJobId sudah kosong setelah restart. Semua job "running"
+   * yang tersisa saat startup pasti yatim — tak ada loop yang menjalankannya.
+   */
+  async onModuleInit() {
+    const { affected } = await this.db
+      .getRepository(PmbTrackingJob)
+      .update({ status: "running" }, { status: "stopped" });
+    if (affected) {
+      this.log.warn(
+        `${affected} job backfill tracking PMB ditandai berhenti: prosesnya hilang saat restart.`,
+      );
+    }
+  }
 
   async start(opts: {
     intent?: string;
@@ -69,13 +95,16 @@ export class PmbTrackingService {
     batchDelayMs: number;
     startedBy: string | null;
   }) {
-    if (this.runningJobId) {
+    const jobs = this.db.getRepository(PmbTrackingJob);
+
+    // Dicek dua lapis: memori (loop di proses ini) dan DB (baris "running"
+    // yang mungkin ditinggalkan proses lain). Tanpa cek DB, dua replika
+    // backend bisa sama-sama merasa kosong lalu membanjiri API PMB bersamaan.
+    if (this.runningJobId || (await jobs.countBy({ status: "running" }))) {
       throw new ConflictException(
         "Ada job backfill tracking PMB yang masih berjalan. Hentikan dulu sebelum memulai yang baru.",
       );
     }
-
-    const jobs = this.db.getRepository(PmbTrackingJob);
     const job = await jobs.save(
       jobs.create({
         status: "running",
@@ -98,11 +127,22 @@ export class PmbTrackingService {
     return { job_id: job.id };
   }
 
-  stop(jobId: string) {
-    if (this.runningJobId !== jobId) {
+  async stop(jobId: string) {
+    if (this.runningJobId === jobId) {
+      // Loop-nya ada di proses ini: minta berhenti baik-baik supaya batch
+      // yang sedang jalan selesai dulu dan statusnya ditulis oleh run().
+      this.stopRequested = true;
+      return { ok: true };
+    }
+
+    // Job yatim: baris masih "running" tapi tak ada loop yang menjalankannya
+    // (mis. proses lama sudah mati). Tutup barisnya langsung.
+    const { affected } = await this.db
+      .getRepository(PmbTrackingJob)
+      .update({ id: jobId, status: "running" }, { status: "stopped" });
+    if (!affected) {
       throw new NotFoundException("Job ini tidak sedang berjalan.");
     }
-    this.stopRequested = true;
     return { ok: true };
   }
 
