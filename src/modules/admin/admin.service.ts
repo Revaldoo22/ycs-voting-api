@@ -220,7 +220,17 @@ export class AdminService implements OnModuleInit {
                 and dv.status = 'approved' and dv.is_bot = false
                 and dv.created_at > r.created_at
             ))::int                                                  as lost_voters,
-        (select count(*) from daily_votes where is_bot = true)::int  as bot_votes,
+        -- Hanya boost yang poinnya benar-benar masih melekat di peserta.
+        -- Vote bot milik peserta yang saldo poinnya sudah direset manual
+        -- tidak ikut: poinnya tak ada di total_points, jadi menyebutnya
+        -- "termasuk N dari boost" di kartu Total Poin justru menyesatkan.
+        (select count(*) from daily_votes dv
+           join participants p on p.id = dv.participant_id
+          where dv.is_bot = true
+            and p.total_points >= (
+              select coalesce(sum(b.points), 0) from daily_votes b
+               where b.participant_id = p.id and b.is_bot = true
+            ))::int                                                  as bot_votes,
 
         -- Klaim kupon
         (select count(*) from coupon_claims where status = 'pending')::int
