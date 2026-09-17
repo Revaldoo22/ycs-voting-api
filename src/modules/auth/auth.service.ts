@@ -1,6 +1,7 @@
 import {
   ConflictException,
   Injectable,
+  Logger,
   NotFoundException,
   UnauthorizedException,
 } from "@nestjs/common";
@@ -20,33 +21,59 @@ function roleHome(role: string): string {
   return "/";
 }
 
+const PMB_TRACKING_URL = "https://pmb.stekom.ac.id/api/tracking/submit-direct";
+
 /**
  * Lapor pendaftaran voter ke web PMB (analytics lead, bukan bagian alur
  * onboarding). Fire-and-forget: gagal/timeout tidak boleh menggagalkan
  * onboarding voter di web ini.
+ *
+ * Kirim sinkron ke PMB tapi dipanggil tanpa await, dan yang sukses ditandai
+ * di profiles.pmb_tracked_at supaya backfill admin (PmbTrackingService) tidak
+ * mengirim ulang orang yang sudah terlapor lewat jalur ini.
  */
-function trackPmbSubmit(data: {
-  nama: string;
-  email: string;
-  phone: string;
-}) {
-  fetch("https://pmb.stekom.ac.id/api/tracking/submit-direct", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      source_page: "Idola Voter",
-      nama: data.nama,
-      email: data.email,
-      phone: data.phone,
-      data: "onboarding_voter",
-    }),
-  }).catch(() => {
-    /* tracking gagal tidak boleh mengganggu onboarding */
-  });
+async function trackPmbSubmit(
+  profiles: Repository<Profile>,
+  log: Logger,
+  data: { id: string; nama: string; email: string; phone: string },
+) {
+  try {
+    const res = await fetch(PMB_TRACKING_URL, {
+      method: "POST",
+      // Connection: close menghindari socket keep-alive menggantung ke
+      // server tujuan, sama seperti jalur backfill admin.
+      headers: { "Content-Type": "application/json", Connection: "close" },
+      body: JSON.stringify({
+        source_page: "Idola Voter",
+        nama: data.nama,
+        email: data.email,
+        phone: data.phone,
+        data: "onboarding_voter",
+      }),
+      signal: AbortSignal.timeout(10_000),
+    });
+    if (!res.ok) {
+      // Body respons dipotong: server tujuan bisa balas halaman error HTML
+      // panjang yang tidak berguna di log.
+      const body = await res.text().catch(() => "");
+      throw new Error(`HTTP ${res.status}: ${body.slice(0, 300)}`);
+    }
+    await profiles.update({ id: data.id }, { pmbTrackedAt: new Date() });
+  } catch (e) {
+    // Sengaja hanya dicatat: voter tetap dianggap selesai onboarding, dan
+    // pmb_tracked_at tetap null sehingga backfill admin bisa menyusulkan.
+    log.warn(
+      `Tracking PMB gagal untuk profil ${data.id}: ${
+        e instanceof Error ? e.message : String(e)
+      }`,
+    );
+  }
 }
 
 @Injectable()
 export class AuthService {
+  private readonly log = new Logger(AuthService.name);
+
   constructor(
     @InjectRepository(Profile)
     private readonly profiles: Repository<Profile>,
@@ -327,7 +354,9 @@ export class AuthService {
     user.onboarded = true;
     await this.profiles.save(user);
 
-    trackPmbSubmit({
+    // Tanpa await: pelaporan ke PMB tidak boleh menahan respons onboarding.
+    void trackPmbSubmit(this.profiles, this.log, {
+      id: user.id,
       nama: user.name ?? "",
       email: user.email ?? "",
       phone: user.phoneNumber ?? "",
