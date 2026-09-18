@@ -265,13 +265,22 @@ export class IntegrationsController {
     private readonly admin: AdminService,
   ) {}
 
+  /**
+   * Cari orang lewat nomor WA. Nomor dipakai karena email login SSO dan email
+   * pendaftaran peserta sering BERBEDA (mis. login pakai akun sekolah
+   * belajar.id, daftar peserta pakai gmail pribadi), sementara nomor WA-nya
+   * satu. Role tidak disaring: profil voter juga harus ketemu di sini, karena
+   * justru voter itulah yang perlu dinaikkan jadi peserta.
+   */
   private async findByPhone(phone: string) {
     const profile = await this.profiles.findOneBy({
       phoneNumber: normalizePhone(phone),
-      role: "participant",
     });
     if (!profile) return null;
-    return this.participants.findOneBy({ profileId: profile.id });
+    const participant = await this.participants.findOneBy({
+      profileId: profile.id,
+    });
+    return { profile, participant };
   }
 
   /**
@@ -360,17 +369,22 @@ export class IntegrationsController {
     });
 
     // Kunci: email peserta. Adopsi peserta lama by nomor kalau email belum ada.
+    const byPhone = await this.findByPhone(phone);
     let participant = await this.participants.findOneBy({ email });
-    if (!participant) {
-      const byPhone = await this.findByPhone(phone);
-      if (byPhone) participant = byPhone;
-    }
+    if (!participant && byPhone?.participant) participant = byPhone.participant;
 
-    // Profil VOTER dengan email sama → di-UPGRADE jadi peserta (bukan ditolak).
-    // Orang yang sudah daftar sebagai voter lalu mendaftarkan diri jadi peserta:
-    // akunnya sama, role naik voter → participant, dan dibuatkan record peserta
-    // yang menaut ke profil itu. Data vote/onboarding lamanya tetap.
-    const emailProfile = await this.profiles.findOneBy({ email });
+    // Profil yang sudah ada di sini dicari lewat DUA jalur, karena email login
+    // SSO tak selalu sama dengan email pendaftaran peserta:
+    //   1. email pendaftaran (orang yang login SSO pakai email yang sama), dan
+    //   2. nomor WA (orang yang login SSO pakai email lain, mis. belajar.id).
+    // Email menang kalau dua-duanya ketemu tapi beda orang.
+    const emailProfile =
+      (await this.profiles.findOneBy({ email })) ?? byPhone?.profile ?? null;
+
+    // Profil VOTER → di-UPGRADE jadi peserta (bukan ditolak). Orang yang sudah
+    // daftar sebagai voter lalu mendaftarkan diri jadi peserta: akunnya sama,
+    // role naik voter → participant, dan dibuatkan record peserta yang menaut
+    // ke profil itu. Data vote/onboarding lamanya tetap.
     if (
       !participant &&
       emailProfile &&
@@ -405,12 +419,21 @@ export class IntegrationsController {
       if (dto.status !== undefined) participant.status = dto.status;
       const saved = await this.participants.save(participant);
       if (participant.profileId) {
+        // CATATAN: email profil TIDAK ditimpa dengan email pendaftaran.
+        // Email profil adalah email login SSO; email pendaftaran disimpan di
+        // record peserta. Keduanya boleh berbeda (mis. login akun sekolah
+        // belajar.id, daftar peserta pakai gmail pribadi). Menimpanya akan
+        // memutus akses login orangnya. Kalau profil belum punya email sama
+        // sekali, barulah email pendaftaran dipakai sebagai isian awal.
+        const profileRow = await this.profiles.findOneBy({
+          id: participant.profileId,
+        });
         await this.profiles.update(
           { id: participant.profileId },
           {
             name: dto.name.trim(),
             phoneNumber: phone,
-            email,
+            ...(profileRow?.email ? {} : { email }),
             schoolId: school?.id ?? null,
             // Pastikan profil (mis. voter yg di-upgrade) berperan peserta.
             role: "participant",
@@ -785,7 +808,7 @@ export class IntegrationsController {
     const phone = normalizePhone(dto.phone_number);
     const school = await this.resolveSchool({ name: dto.school_name, regionCode: dto.region_code });
 
-    const existing = await this.findByPhone(phone);
+    const existing = (await this.findByPhone(phone))?.participant ?? null;
     if (existing) {
       existing.name = dto.name.trim();
       existing.schoolId = school?.id ?? null;
@@ -823,7 +846,7 @@ export class IntegrationsController {
   /** Snapshot peserta + kontennya (untuk verifikasi sinkron). */
   @Get("participants/:phone")
   async get(@Param("phone") phone: string) {
-    const participant = await this.findByPhone(phone);
+    const participant = (await this.findByPhone(phone))?.participant ?? null;
     if (!participant) throw new NotFoundException("Peserta tidak ditemukan.");
     const contents = await this.contents.findBy({
       participantId: participant.id,
@@ -973,7 +996,7 @@ export class IntegrationsController {
     @Param("phone") phone: string,
     @Body() dto: SyncContentsDto,
   ) {
-    const participant = await this.findByPhone(phone);
+    const participant = (await this.findByPhone(phone))?.participant ?? null;
     if (!participant) throw new NotFoundException("Peserta tidak ditemukan.");
     return this.replaceContents(participant.id, dto);
   }
